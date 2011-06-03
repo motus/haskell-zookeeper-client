@@ -7,7 +7,7 @@ module Zookeeper (
   create, delete, get,
   createFlags,
   WatcherFunc, State(..), Watch(..), EventType(..),
-  CreateFlags(..)) where
+  CreateFlags(..), Acl(..)) where
 
 import Prelude hiding (init)
 
@@ -37,6 +37,15 @@ data Watch = Watch | NoWatch deriving (Show)
 data CreateFlags = CreateFlags {
   ephemeral :: Bool,
   sequence  :: Bool
+}
+
+data Acl = Acl {
+  aclRead   :: Bool,
+  aclWrite  :: Bool,
+  aclCreate :: Bool,
+  aclDelete :: Bool,
+  aclAdmin  :: Bool,
+  aclAll    :: Bool
 }
 
 type WatcherImpl = Ptr ZHBlob -> Int -> Int -> CString -> VoidPtr -> IO ()
@@ -124,6 +133,14 @@ bitOr False _  res = res
 createFlagsInt (CreateFlags ephemeral sequence) =
   bitOr ephemeral (#const ZOO_EPHEMERAL) $
   bitOr sequence  (#const ZOO_SEQUENCE ) 0
+
+aclInt (Acl aclRead aclWrite aclCreate aclDelete aclAdmin aclAll) =
+  bitOr aclRead   (#const ZOO_PERM_READ  ) $
+  bitOr aclWrite  (#const ZOO_PERM_WRITE ) $
+  bitOr aclCreate (#const ZOO_PERM_CREATE) $
+  bitOr aclDelete (#const ZOO_PERM_DELETE) $
+  bitOr aclAdmin  (#const ZOO_PERM_ADMIN ) $
+  bitOr aclAll    (#const ZOO_PERM_ALL   ) 0
 
 watchFlag Watch   = 1
 watchFlag NoWatch = 0
