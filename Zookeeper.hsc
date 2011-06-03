@@ -5,9 +5,13 @@ module Zookeeper (
   init, close,
   recvTimeout, state,
   create, delete, get,
-  WatcherFunc, State(..), Watch(..)) where
+  createFlags,
+  WatcherFunc, State(..), Watch(..), EventType(..),
+  CreateFlags(..)) where
 
 import Prelude hiding (init)
+
+import Data.Bits
 
 import Foreign
 import Foreign.C.Types
@@ -30,6 +34,11 @@ data EventType = Created | Deleted | Changed | Child |
 
 data Watch = Watch | NoWatch deriving (Show)
 
+data CreateFlags = CreateFlags {
+  ephemeral :: Bool,
+  sequence  :: Bool
+}
+
 type WatcherImpl = Ptr ZHBlob -> Int -> Int -> CString -> VoidPtr -> IO ()
 type WatcherFunc = ZHandle -> EventType -> State -> String -> IO ()
 
@@ -41,7 +50,9 @@ close :: ZHandle -> IO ()
 recvTimeout :: ZHandle -> IO Int
 state       :: ZHandle -> IO State
 
-create :: ZHandle -> String -> String -> Int -> IO String
+createFlags :: CreateFlags
+
+create :: ZHandle -> String -> String -> CreateFlags -> IO String
 delete :: ZHandle -> String -> Int -> IO ()
 get    :: ZHandle -> String -> Watch -> IO String
 
@@ -107,6 +118,13 @@ zooEvent (#const ZOO_CHILD_EVENT      ) = Child
 zooEvent (#const ZOO_SESSION_EVENT    ) = Session
 zooEvent (#const ZOO_NOTWATCHING_EVENT) = NotWatching
 
+bitOr True val res = val .|. res
+bitOr False _  res = res
+
+createFlagsInt (CreateFlags ephemeral sequence) =
+  bitOr ephemeral (#const ZOO_EPHEMERAL) $
+  bitOr sequence  (#const ZOO_SEQUENCE ) 0
+
 watchFlag Watch   = 1
 watchFlag NoWatch = 0
 
@@ -129,14 +147,16 @@ recvTimeout zh = withForeignPtr zh zoo_recv_timeout
 
 state zh = withForeignPtr zh zoo_state >>= (return . zooState)
 
+createFlags = CreateFlags True False
+
 create zh path value flags = do
   (_, newPath) <- throwErrnoIf ((/=0) . fst) ("create: " ++ path) $
     withForeignPtr zh (\zhPtr ->
       withCString path (\pathPtr ->
         withCStringLen value (\(valuePtr, valueLen) ->
           allocaBytes pathBufferSize (\buf -> do
-            err <- zoo_create zhPtr pathPtr
-                     valuePtr valueLen nullPtr flags buf pathBufferSize
+            err <- zoo_create zhPtr pathPtr valuePtr valueLen
+                     nullPtr (createFlagsInt flags) buf pathBufferSize
             bufStr <- peekCString buf
             return (err, bufStr)))))
   return newPath
