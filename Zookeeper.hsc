@@ -1,7 +1,9 @@
 
 {-# LANGUAGE ForeignFunctionInterface #-}
 
-module Zookeeper (zInit, zClose, WatcherFunc) where
+module Zookeeper (init, close, recvTimeout, WatcherFunc, State(..)) where
+
+import Prelude hiding (init)
 
 import Foreign
 import Foreign.C.Types
@@ -16,15 +18,25 @@ data VoidBlob = VoidBlob -- C pointer placeholder
 type ZHandle = ForeignPtr ZHBlob
 type VoidPtr = Ptr VoidBlob
 
+data State = ExpiredSession | AuthFailed | Connecting |
+             Associating | Connected deriving(Show)
+
 type WatcherImpl = Ptr ZHBlob -> Int -> Int -> CString -> VoidPtr -> IO ()
-type WatcherFunc = ZHandle -> Int -> Int -> String -> IO ()
+type WatcherFunc = ZHandle -> Int -> State -> String -> IO ()
 
 -- Exported interface:
 
-zInit  :: String -> WatcherFunc -> Int -> IO ZHandle
-zClose :: ZHandle -> IO ()
+init  :: String -> WatcherFunc -> Int -> IO ZHandle
+close :: ZHandle -> IO ()
+
+recvTimeout :: ZHandle -> IO Int
 
 -- C functions:
+
+#include <zookeeper.h>
+
+foreign import ccall "wrapper"
+  wrapWatcherImpl :: WatcherImpl -> IO (FunPtr WatcherImpl)
 
 foreign import ccall unsafe
   "zookeeper.h zookeeper_init" zookeeper_init ::
@@ -39,8 +51,9 @@ foreign import ccall unsafe
   "zookeeper.h zookeeper_close" zookeeper_close ::
   Ptr ZHBlob -> IO Int
 
-foreign import ccall "wrapper"
-  wrapWatcherImpl :: WatcherImpl -> IO (FunPtr WatcherImpl)
+foreign import ccall unsafe
+  "zookeeper.h zoo_recv_timeout" zoo_recv_timeout ::
+  Ptr ZHBlob -> IO Int
 
 -- Internal functions:
 
@@ -48,11 +61,17 @@ wrapWatcher func =
   wrapWatcherImpl (\zhBlob zType zState csPath _ -> do
     path <- peekCString csPath
     zh <- newForeignPtr_ zhBlob
-    func zh zType zState path)
+    func zh zType (zooState zState) path)
+
+zooState (#const ZOO_EXPIRED_SESSION_STATE) = ExpiredSession
+zooState (#const ZOO_AUTH_FAILED_STATE    ) = AuthFailed
+zooState (#const ZOO_CONNECTING_STATE     ) = Connecting
+zooState (#const ZOO_ASSOCIATING_STATE    ) = Associating
+zooState (#const ZOO_CONNECTED_STATE      ) = Connected
 
 -- Implementation of exported functions:
 
-zInit host watcher timeout =
+init host watcher timeout =
   withCString host (\csHost -> do
     watcherPtr <- wrapWatcher watcher
     zh <- throwErrnoIfNull
@@ -60,5 +79,7 @@ zInit host watcher timeout =
       (zookeeper_init csHost watcherPtr timeout nullPtr nullPtr 0)
     newForeignPtr zookeeper_close_ptr zh)
 
-zClose = finalizeForeignPtr
+close = finalizeForeignPtr
+
+recvTimeout zh = withForeignPtr zh zoo_recv_timeout
 

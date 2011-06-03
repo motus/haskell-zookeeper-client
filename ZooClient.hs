@@ -1,9 +1,11 @@
 
-import Zookeeper
+module Main where
+
+import qualified Zookeeper as Zoo
 
 main = do
-  zh <- zInit "" zNullWatcher 10000  
-  zClose zh
-  where zNullWatcher zh zType zState path = putStrLn path
+  zh <- Zoo.init "localhost:3181" nullWatcher 10000
+  Zoo.close zh
+  where nullWatcher zh zType zState path = putStrLn path
 
 
