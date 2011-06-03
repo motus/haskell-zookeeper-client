@@ -1,7 +1,10 @@
 
 {-# LANGUAGE ForeignFunctionInterface #-}
 
-module Zookeeper (init, close, recvTimeout, WatcherFunc, State(..)) where
+module Zookeeper (
+  init, close,
+  recvTimeout, state,
+  WatcherFunc, State(..)) where
 
 import Prelude hiding (init)
 
@@ -19,7 +22,7 @@ type ZHandle = ForeignPtr ZHBlob
 type VoidPtr = Ptr VoidBlob
 
 data State = ExpiredSession | AuthFailed | Connecting |
-             Associating | Connected deriving(Show)
+             Associating | Connected deriving (Show)
 
 type WatcherImpl = Ptr ZHBlob -> Int -> Int -> CString -> VoidPtr -> IO ()
 type WatcherFunc = ZHandle -> Int -> State -> String -> IO ()
@@ -30,6 +33,7 @@ init  :: String -> WatcherFunc -> Int -> IO ZHandle
 close :: ZHandle -> IO ()
 
 recvTimeout :: ZHandle -> IO Int
+state       :: ZHandle -> IO State
 
 -- C functions:
 
@@ -53,6 +57,10 @@ foreign import ccall unsafe
 
 foreign import ccall unsafe
   "zookeeper.h zoo_recv_timeout" zoo_recv_timeout ::
+  Ptr ZHBlob -> IO Int
+
+foreign import ccall unsafe
+  "zookeeper.h zoo_state" zoo_state ::
   Ptr ZHBlob -> IO Int
 
 -- Internal functions:
@@ -82,4 +90,6 @@ init host watcher timeout =
 close = finalizeForeignPtr
 
 recvTimeout zh = withForeignPtr zh zoo_recv_timeout
+
+state zh = withForeignPtr zh zoo_state >>= (return . zooState)
 
