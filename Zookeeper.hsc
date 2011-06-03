@@ -12,6 +12,7 @@ module Zookeeper (
 import Prelude hiding (init)
 
 import Data.Bits
+import Data.Word
 
 import Foreign
 import Foreign.C.Types
@@ -35,17 +36,31 @@ data EventType = Created | Deleted | Changed | Child |
 data Watch = Watch | NoWatch deriving (Show)
 
 data CreateFlags = CreateFlags {
-  ephemeral :: Bool,
-  sequence  :: Bool
+  create_ephemeral :: Bool,
+  create_sequence  :: Bool
 }
 
 data Acl = Acl {
-  aclRead   :: Bool,
-  aclWrite  :: Bool,
-  aclCreate :: Bool,
-  aclDelete :: Bool,
-  aclAdmin  :: Bool,
-  aclAll    :: Bool
+  acl_read   :: Bool,
+  acl_write  :: Bool,
+  acl_create :: Bool,
+  acl_delete :: Bool,
+  acl_admin  :: Bool,
+  acl_all    :: Bool
+}
+
+data Stat = Stat {
+  stat_czxid           :: Word64,
+  stat_mzxid           :: Word64,
+  stat_ctime           :: Word64,
+  stat_mtime           :: Word64,
+  stat_version         :: Word32,
+  stat_cversion        :: Word32,
+  stat_aversion        :: Word32,
+  stat_ephemeralOwner  :: Word64,
+  stat_dataLength      :: Word32,
+  stat_numChildren     :: Word32,
+  stat_pzxid           :: Word64
 }
 
 type WatcherImpl = Ptr ZHBlob -> Int -> Int -> CString -> VoidPtr -> IO ()
@@ -130,17 +145,18 @@ zooEvent (#const ZOO_NOTWATCHING_EVENT) = NotWatching
 bitOr True val res = val .|. res
 bitOr False _  res = res
 
-createFlagsInt (CreateFlags ephemeral sequence) =
-  bitOr ephemeral (#const ZOO_EPHEMERAL) $
-  bitOr sequence  (#const ZOO_SEQUENCE ) 0
+createFlagsInt (CreateFlags create_ephemeral create_sequence) =
+  bitOr create_ephemeral (#const ZOO_EPHEMERAL) $
+  bitOr create_sequence  (#const ZOO_SEQUENCE ) 0
 
-aclInt (Acl aclRead aclWrite aclCreate aclDelete aclAdmin aclAll) =
-  bitOr aclRead   (#const ZOO_PERM_READ  ) $
-  bitOr aclWrite  (#const ZOO_PERM_WRITE ) $
-  bitOr aclCreate (#const ZOO_PERM_CREATE) $
-  bitOr aclDelete (#const ZOO_PERM_DELETE) $
-  bitOr aclAdmin  (#const ZOO_PERM_ADMIN ) $
-  bitOr aclAll    (#const ZOO_PERM_ALL   ) 0
+aclInt (Acl acl_read acl_write
+        acl_create acl_delete acl_admin acl_all) =
+  bitOr acl_read   (#const ZOO_PERM_READ  ) $
+  bitOr acl_write  (#const ZOO_PERM_WRITE ) $
+  bitOr acl_create (#const ZOO_PERM_CREATE) $
+  bitOr acl_delete (#const ZOO_PERM_DELETE) $
+  bitOr acl_admin  (#const ZOO_PERM_ADMIN ) $
+  bitOr acl_all    (#const ZOO_PERM_ALL   ) 0
 
 watchFlag Watch   = 1
 watchFlag NoWatch = 0
