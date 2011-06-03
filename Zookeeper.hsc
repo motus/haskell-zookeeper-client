@@ -4,8 +4,8 @@
 module Zookeeper (
   init, close,
   recvTimeout, state,
-  create, delete,
-  WatcherFunc, State(..)) where
+  create, delete, get,
+  WatcherFunc, State(..), Watch(..)) where
 
 import Prelude hiding (init)
 
@@ -25,6 +25,8 @@ type VoidPtr = Ptr VoidBlob
 data State = ExpiredSession | AuthFailed | Connecting |
              Associating | Connected deriving (Show)
 
+data Watch = Watch | NoWatch deriving (Show)
+
 type WatcherImpl = Ptr ZHBlob -> Int -> Int -> CString -> VoidPtr -> IO ()
 type WatcherFunc = ZHandle -> Int -> State -> String -> IO ()
 
@@ -38,6 +40,7 @@ state       :: ZHandle -> IO State
 
 create :: ZHandle -> String -> String -> Int -> IO String
 delete :: ZHandle -> String -> Int -> IO ()
+get    :: ZHandle -> String -> Watch -> IO String
 
 -- C functions:
 
@@ -76,6 +79,10 @@ foreign import ccall unsafe
   "zookeeper.h zoo_delete" zoo_delete ::
   Ptr ZHBlob -> CString -> Int -> IO Int
 
+foreign import ccall unsafe
+  "zookeeper.h zoo_get" zoo_get ::
+  Ptr ZHBlob -> CString -> Int -> CString -> Ptr Int -> VoidPtr -> IO Int
+
 -- Internal functions:
 
 wrapWatcher func =
@@ -90,7 +97,11 @@ zooState (#const ZOO_CONNECTING_STATE     ) = Connecting
 zooState (#const ZOO_ASSOCIATING_STATE    ) = Associating
 zooState (#const ZOO_CONNECTED_STATE      ) = Connected
 
-pathBufferSize = 1024
+watchFlag Watch   = 1
+watchFlag NoWatch = 0
+
+pathBufferSize  = 1024
+valueBufferSize = 2048
 
 -- Implementation of exported functions:
 
@@ -125,4 +136,17 @@ delete zh path version =
     withForeignPtr zh (\zhPtr ->
       withCString path (\pathPtr ->
         zoo_delete zhPtr pathPtr version))
+
+get zh path watch = do
+  (_, val) <- throwErrnoIf ((/=0) . fst) ("get: " ++ path) $
+    withForeignPtr zh (\zhPtr ->
+      withCString path (\pathPtr ->
+        alloca (\bufLen ->
+          allocaBytes valueBufferSize (\buf -> do
+            poke bufLen valueBufferSize
+            err <- zoo_get zhPtr pathPtr (watchFlag watch) buf bufLen nullPtr
+            resultLen <- peek bufLen
+            bufStr <- peekCStringLen (buf, resultLen)
+            return (err, bufStr)))))
+  return val
 
