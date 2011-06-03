@@ -22,13 +22,13 @@ type WatcherFunc = ZHandle -> Int -> Int -> String -> IO ()
 -- Exported interface:
 
 zInit  :: String -> WatcherFunc -> Int -> IO ZHandle
-zClose :: ZHandle -> IO () -- FIXME: IO Int
+zClose :: ZHandle -> IO ()
 
 -- C functions:
 
 foreign import ccall unsafe
   "zookeeper.h zookeeper_init" zookeeper_init ::
-  CString -> FunPtr WatcherImpl -> Int -> 
+  CString -> FunPtr WatcherImpl -> Int ->
   VoidPtr -> VoidPtr -> Int -> IO (Ptr ZHBlob)
 
 foreign import ccall unsafe
@@ -37,8 +37,8 @@ foreign import ccall unsafe
 
 foreign import ccall unsafe
   "zookeeper.h zookeeper_close" zookeeper_close ::
-  Ptr ZHBlob -> IO () -- FIXME: IO Int
-  
+  Ptr ZHBlob -> IO Int
+
 foreign import ccall "wrapper"
   wrapWatcherImpl :: WatcherImpl -> IO (FunPtr WatcherImpl)
 
