@@ -8,7 +8,7 @@ EXE = ZooClient
 ZK_INCLUDE = /usr/local/include/c-client-src
 ZK_LIBS    = /usr/local/lib
 
-LD_LIBRARY_PATH = $(ZK_LIBS)
+export LD_LIBRARY_PATH = $LD_LIBRARY_PATH:$(ZK_LIBS)
 
 GHC_OPTS = -O3 -optc-O3 -L$(ZK_LIBS) -lzookeeper_mt -threaded
 
