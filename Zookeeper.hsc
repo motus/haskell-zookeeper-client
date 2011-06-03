@@ -26,8 +26,6 @@ zClose :: ZHandle -> IO () -- FIXME: IO Int
 
 -- C functions:
 
-#include <zookeeper.h>
-
 foreign import ccall unsafe
   "zookeeper.h zookeeper_init" zookeeper_init ::
   CString -> FunPtr WatcherImpl -> Int -> 
@@ -47,7 +45,7 @@ foreign import ccall "wrapper"
 -- Internal functions:
 
 wrapWatcher func =
-  wrapWatcherImpl (\zhBlob zType zState csPath _ = do
+  wrapWatcherImpl (\zhBlob zType zState csPath _ -> do
     path <- peekCString csPath
     zh <- newForeignPtr_ zhBlob
     func zh zType zState path)

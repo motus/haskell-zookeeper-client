@@ -3,3 +3,4 @@
 *.o
 ZooClient
 Zookeeper.hs
+Zookeeper_stub.*
