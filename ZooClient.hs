@@ -9,5 +9,5 @@ main = do
   val  <- Zoo.get zh "/xyz" Zoo.NoWatch
   putStrLn val
   -- Zoo.close zh
-  where nullWatcher zh zType zState path = putStrLn path
+  where nullWatcher zh zEventType zState path = putStrLn path
 

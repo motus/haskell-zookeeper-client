@@ -25,10 +25,13 @@ type VoidPtr = Ptr VoidBlob
 data State = ExpiredSession | AuthFailed | Connecting |
              Associating | Connected deriving (Show)
 
+data EventType = Created | Deleted | Changed | Child |
+                 Session | NotWatching
+
 data Watch = Watch | NoWatch deriving (Show)
 
 type WatcherImpl = Ptr ZHBlob -> Int -> Int -> CString -> VoidPtr -> IO ()
-type WatcherFunc = ZHandle -> Int -> State -> String -> IO ()
+type WatcherFunc = ZHandle -> EventType -> State -> String -> IO ()
 
 -- Exported interface:
 
@@ -86,16 +89,23 @@ foreign import ccall unsafe
 -- Internal functions:
 
 wrapWatcher func =
-  wrapWatcherImpl (\zhBlob zType zState csPath _ -> do
+  wrapWatcherImpl (\zhBlob zEventType zState csPath _ -> do
     path <- peekCString csPath
     zh <- newForeignPtr_ zhBlob
-    func zh zType (zooState zState) path)
+    func zh (zooEvent zEventType) (zooState zState) path)
 
 zooState (#const ZOO_EXPIRED_SESSION_STATE) = ExpiredSession
 zooState (#const ZOO_AUTH_FAILED_STATE    ) = AuthFailed
 zooState (#const ZOO_CONNECTING_STATE     ) = Connecting
 zooState (#const ZOO_ASSOCIATING_STATE    ) = Associating
 zooState (#const ZOO_CONNECTED_STATE      ) = Connected
+
+zooEvent (#const ZOO_CREATED_EVENT    ) = Created
+zooEvent (#const ZOO_DELETED_EVENT    ) = Deleted
+zooEvent (#const ZOO_CHANGED_EVENT    ) = Changed
+zooEvent (#const ZOO_CHILD_EVENT      ) = Child
+zooEvent (#const ZOO_SESSION_EVENT    ) = Session
+zooEvent (#const ZOO_NOTWATCHING_EVENT) = NotWatching
 
 watchFlag Watch   = 1
 watchFlag NoWatch = 0
