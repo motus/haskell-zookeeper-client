@@ -4,6 +4,7 @@
 module Zookeeper (
   init, close,
   recvTimeout, state,
+  create, delete,
   WatcherFunc, State(..)) where
 
 import Prelude hiding (init)
@@ -35,6 +36,9 @@ close :: ZHandle -> IO ()
 recvTimeout :: ZHandle -> IO Int
 state       :: ZHandle -> IO State
 
+create :: ZHandle -> String -> String -> Int -> IO String
+delete :: ZHandle -> String -> Int -> IO ()
+
 -- C functions:
 
 #include <zookeeper.h>
@@ -63,6 +67,15 @@ foreign import ccall unsafe
   "zookeeper.h zoo_state" zoo_state ::
   Ptr ZHBlob -> IO Int
 
+foreign import ccall unsafe
+  "zookeeper.h zoo_create" zoo_create ::
+  Ptr ZHBlob -> CString -> CString -> Int -> VoidPtr -> -- ACL_vector
+  Int -> CString -> Int -> IO Int
+
+foreign import ccall unsafe
+  "zookeeper.h zoo_delete" zoo_delete ::
+  Ptr ZHBlob -> CString -> Int -> IO Int
+
 -- Internal functions:
 
 wrapWatcher func =
@@ -77,13 +90,15 @@ zooState (#const ZOO_CONNECTING_STATE     ) = Connecting
 zooState (#const ZOO_ASSOCIATING_STATE    ) = Associating
 zooState (#const ZOO_CONNECTED_STATE      ) = Connected
 
+pathBufferSize = 1024
+
 -- Implementation of exported functions:
 
 init host watcher timeout =
   withCString host (\csHost -> do
     watcherPtr <- wrapWatcher watcher
     zh <- throwErrnoIfNull
-      ("zInit: " ++ host)
+      ("init: " ++ host)
       (zookeeper_init csHost watcherPtr timeout nullPtr nullPtr 0)
     newForeignPtr zookeeper_close_ptr zh)
 
@@ -92,4 +107,22 @@ close = finalizeForeignPtr
 recvTimeout zh = withForeignPtr zh zoo_recv_timeout
 
 state zh = withForeignPtr zh zoo_state >>= (return . zooState)
+
+create zh path value flags = do
+  (_, newPath) <- throwErrnoIf ((/=0) . fst) ("create: " ++ path) $
+    withForeignPtr zh (\zhPtr ->
+      withCString path (\pathPtr ->
+        withCStringLen value (\(valuePtr, valueLen) ->
+          allocaBytes pathBufferSize (\buf -> do
+            err <- zoo_create zhPtr pathPtr
+                     valuePtr valueLen nullPtr flags buf pathBufferSize
+            bufStr <- peekCString buf
+            return (err, bufStr)))))
+  return newPath
+
+delete zh path version =
+  throwErrnoIf_ (/=0) ("delete: " ++ path) $
+    withForeignPtr zh (\zhPtr ->
+      withCString path (\pathPtr ->
+        zoo_delete zhPtr pathPtr version))
 
