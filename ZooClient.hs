@@ -11,4 +11,3 @@ main = do
   -- Zoo.close zh
   where nullWatcher zh zType zState path = putStrLn path
 
-
