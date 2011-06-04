@@ -129,6 +129,15 @@ foreign import ccall unsafe
   "zookeeper.h zoo_get" zoo_get ::
   Ptr ZHBlob -> CString -> Int -> CString -> Ptr Int -> VoidPtr -> IO Int
 
+foreign import ccall safe "zookeeper.h &ZOO_OPEN_ACL_UNSAFE"
+   zoo_open_acl_unsafe_ptr :: Ptr AclsBlob
+
+foreign import ccall safe "zookeeper.h &ZOO_READ_ACL_UNSAFE"
+   zoo_read_acl_unsafe_ptr :: Ptr AclsBlob
+
+foreign import ccall safe "zookeeper.h &ZOO_CREATOR_ALL_ACL"
+   zoo_creator_all_ptr :: Ptr AclsBlob
+
 -- Internal functions:
 
 wrapWatcher func =
@@ -167,9 +176,9 @@ aclPermsInt (Acl acl_scheme acl_id acl_read acl_write
   bitOr acl_admin  (#const ZOO_PERM_ADMIN ) $
   bitOr acl_all    (#const ZOO_PERM_ALL   ) 0
 
-withAclVector OpenAclUnsafe func = func nullPtr -- (#const &ZOO_OPEN_ACL_UNSAFE)
-withAclVector ReadAclUnsafe func = func nullPtr -- (#const &ZOO_READ_ACL_UNSAFE)
-withAclVector CreatorAllAcl func = func nullPtr -- (#const &ZOO_CREATOR_ALL_ACL)
+withAclVector OpenAclUnsafe func = func zoo_open_acl_unsafe_ptr
+withAclVector ReadAclUnsafe func = func zoo_read_acl_unsafe_ptr
+withAclVector CreatorAllAcl func = func zoo_creator_all_ptr
 
 withAclVector (AclList acls) func =
   allocaBytes (#size struct ACL_vector) (\avPtr -> do
