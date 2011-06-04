@@ -5,9 +5,9 @@ module Zookeeper (
   init, close,
   recvTimeout, state,
   create, delete, get,
-  defaultCreateFlags,
+  defaultCreateMode,
   WatcherFunc, State(..), Watch(..), EventType(..),
-  CreateFlags(..), Acl(..)) where
+  CreateMode(..), Acl(..), Stat(..)) where
 
 import Prelude hiding (init)
 
@@ -35,12 +35,14 @@ data EventType = Created | Deleted | Changed | Child |
 
 data Watch = Watch | NoWatch deriving (Show)
 
-data CreateFlags = CreateFlags {
+data CreateMode = CreateMode {
   create_ephemeral :: Bool,
   create_sequence  :: Bool
 }
 
 data Acl = Acl {
+  acl_scheme :: String,
+  acl_id     :: String,
   acl_read   :: Bool,
   acl_write  :: Bool,
   acl_create :: Bool,
@@ -68,7 +70,7 @@ type WatcherFunc = ZHandle -> EventType -> State -> String -> IO ()
 
 -- Exported interface:
 
-defaultCreateFlags :: CreateFlags
+defaultCreateMode :: CreateMode
 
 init  :: String -> WatcherFunc -> Int -> IO ZHandle
 close :: ZHandle -> IO ()
@@ -76,7 +78,7 @@ close :: ZHandle -> IO ()
 recvTimeout :: ZHandle -> IO Int
 state       :: ZHandle -> IO State
 
-create :: ZHandle -> String -> String -> CreateFlags -> IO String
+create :: ZHandle -> String -> String -> CreateMode -> IO String
 delete :: ZHandle -> String -> Int -> IO ()
 get    :: ZHandle -> String -> Watch -> IO String
 
@@ -145,18 +147,34 @@ zooEvent (#const ZOO_NOTWATCHING_EVENT) = NotWatching
 bitOr True val res = val .|. res
 bitOr False _  res = res
 
-createFlagsInt (CreateFlags create_ephemeral create_sequence) =
+createModeInt (CreateMode create_ephemeral create_sequence) =
   bitOr create_ephemeral (#const ZOO_EPHEMERAL) $
   bitOr create_sequence  (#const ZOO_SEQUENCE ) 0
 
-aclInt (Acl acl_read acl_write
-        acl_create acl_delete acl_admin acl_all) =
+aclPermsInt :: Acl -> Word32
+aclPermsInt (Acl acl_scheme acl_id acl_read acl_write
+             acl_create acl_delete acl_admin acl_all) =
   bitOr acl_read   (#const ZOO_PERM_READ  ) $
   bitOr acl_write  (#const ZOO_PERM_WRITE ) $
   bitOr acl_create (#const ZOO_PERM_CREATE) $
   bitOr acl_delete (#const ZOO_PERM_DELETE) $
   bitOr acl_admin  (#const ZOO_PERM_ADMIN ) $
   bitOr acl_all    (#const ZOO_PERM_ALL   ) 0
+
+withAclVector acls func =
+  allocaBytes (#size struct ACL_vector) (\avPtr -> do
+    (#poke struct ACL_vector, count) avPtr len
+    allocaBytes (len * (#size struct ACL)) (\aclPtr ->
+      copyAcls acls aclPtr aclPtr func))
+  where len = length acls
+        copyAcls [] base _ func = func base
+        copyAcls (acl:rest) base ptr func =
+          withCString (acl_scheme acl) (\schemePtr ->
+            withCString (acl_id acl) (\idPtr -> do
+              (#poke struct ACL, perms    ) ptr (aclPermsInt acl)
+              (#poke struct ACL, id.scheme) ptr schemePtr
+              (#poke struct ACL, id.id    ) ptr idPtr
+              copyAcls rest base (plusPtr ptr (#size struct ACL)) func))
 
 watchFlag Watch   = 1
 watchFlag NoWatch = 0
@@ -166,7 +184,7 @@ valueBufferSize = 2048
 
 -- Implementation of exported functions:
 
-defaultCreateFlags = CreateFlags True False
+defaultCreateMode = CreateMode True False
 
 init host watcher timeout =
   withCString host (\csHost -> do
@@ -189,7 +207,7 @@ create zh path value flags = do
         withCStringLen value (\(valuePtr, valueLen) ->
           allocaBytes pathBufferSize (\buf -> do
             err <- zoo_create zhPtr pathPtr valuePtr valueLen
-                     nullPtr (createFlagsInt flags) buf pathBufferSize
+                     nullPtr (createModeInt flags) buf pathBufferSize
             bufStr <- peekCString buf
             return (err, bufStr)))))
   return newPath
