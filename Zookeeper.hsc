@@ -167,9 +167,9 @@ aclPermsInt (Acl acl_scheme acl_id acl_read acl_write
   bitOr acl_admin  (#const ZOO_PERM_ADMIN ) $
   bitOr acl_all    (#const ZOO_PERM_ALL   ) 0
 
---withAclVector OpenAclUnsafe func = func (#const ZOO_OPEN_ACL_UNSAFE)
---withAclVector ReadAclUnsafe func = func (#const ZOO_READ_ACL_UNSAFE)
---withAclVector CreatorAllAcl func = func (#const ZOO_CREATOR_ALL_ACL)
+withAclVector OpenAclUnsafe func = func nullPtr -- (#const &ZOO_OPEN_ACL_UNSAFE)
+withAclVector ReadAclUnsafe func = func nullPtr -- (#const &ZOO_READ_ACL_UNSAFE)
+withAclVector CreatorAllAcl func = func nullPtr -- (#const &ZOO_CREATOR_ALL_ACL)
 
 withAclVector (AclList acls) func =
   allocaBytes (#size struct ACL_vector) (\avPtr -> do
