@@ -7,7 +7,7 @@ module Zookeeper (
   create, delete, get,
   defaultCreateMode,
   WatcherFunc, State(..), Watch(..), EventType(..),
-  CreateMode(..), Acl(..), Stat(..)) where
+  CreateMode(..), Acl(..), Acls(..), Stat(..)) where
 
 import Prelude hiding (init)
 
@@ -22,10 +22,10 @@ import Foreign.C.String
 -- Exported data types:
 
 data ZHBlob   = ZHBlob
-data VoidBlob = VoidBlob -- C pointer placeholder
+type ZHandle  = ForeignPtr ZHBlob
 
-type ZHandle = ForeignPtr ZHBlob
-type VoidPtr = Ptr VoidBlob
+data VoidBlob = VoidBlob -- C pointer placeholder
+type VoidPtr  = Ptr VoidBlob
 
 data State = ExpiredSession | AuthFailed | Connecting |
              Associating | Connected deriving (Show)
@@ -51,18 +51,22 @@ data Acl = Acl {
   acl_all    :: Bool
 }
 
+data Acls = OpenAclUnsafe | ReadAclUnsafe | CreatorAllAcl | AclList [Acl]
+
+data AclsBlob = AclsBlob
+
 data Stat = Stat {
-  stat_czxid           :: Word64,
-  stat_mzxid           :: Word64,
-  stat_ctime           :: Word64,
-  stat_mtime           :: Word64,
-  stat_version         :: Word32,
-  stat_cversion        :: Word32,
-  stat_aversion        :: Word32,
-  stat_ephemeralOwner  :: Word64,
-  stat_dataLength      :: Word32,
-  stat_numChildren     :: Word32,
-  stat_pzxid           :: Word64
+  stat_czxid          :: Word64,
+  stat_mzxid          :: Word64,
+  stat_ctime          :: Word64,
+  stat_mtime          :: Word64,
+  stat_version        :: Word32,
+  stat_cversion       :: Word32,
+  stat_aversion       :: Word32,
+  stat_ephemeralOwner :: Word64,
+  stat_dataLength     :: Word32,
+  stat_numChildren    :: Word32,
+  stat_pzxid          :: Word64
 }
 
 type WatcherImpl = Ptr ZHBlob -> Int -> Int -> CString -> VoidPtr -> IO ()
@@ -78,7 +82,9 @@ close :: ZHandle -> IO ()
 recvTimeout :: ZHandle -> IO Int
 state       :: ZHandle -> IO State
 
-create :: ZHandle -> String -> String -> CreateMode -> IO String
+create :: ZHandle -> String -> Maybe String ->
+          Acls -> CreateMode -> IO String
+
 delete :: ZHandle -> String -> Int -> IO ()
 get    :: ZHandle -> String -> Watch -> IO String
 
@@ -112,7 +118,7 @@ foreign import ccall unsafe
 
 foreign import ccall unsafe
   "zookeeper.h zoo_create" zoo_create ::
-  Ptr ZHBlob -> CString -> CString -> Int -> VoidPtr -> -- ACL_vector
+  Ptr ZHBlob -> CString -> CString -> Int -> Ptr AclsBlob ->
   Int -> CString -> Int -> IO Int
 
 foreign import ccall unsafe
@@ -161,7 +167,11 @@ aclPermsInt (Acl acl_scheme acl_id acl_read acl_write
   bitOr acl_admin  (#const ZOO_PERM_ADMIN ) $
   bitOr acl_all    (#const ZOO_PERM_ALL   ) 0
 
-withAclVector acls func =
+--withAclVector OpenAclUnsafe func = func (#const ZOO_OPEN_ACL_UNSAFE)
+--withAclVector ReadAclUnsafe func = func (#const ZOO_READ_ACL_UNSAFE)
+--withAclVector CreatorAllAcl func = func (#const ZOO_CREATOR_ALL_ACL)
+
+withAclVector (AclList acls) func =
   allocaBytes (#size struct ACL_vector) (\avPtr -> do
     (#poke struct ACL_vector, count) avPtr len
     allocaBytes (len * (#size struct ACL)) (\aclPtr ->
@@ -175,6 +185,9 @@ withAclVector acls func =
               (#poke struct ACL, id.scheme) ptr schemePtr
               (#poke struct ACL, id.id    ) ptr idPtr
               copyAcls rest base (plusPtr ptr (#size struct ACL)) func))
+
+withMaybeCStringLen Nothing    func = func (nullPtr, -1)
+withMaybeCStringLen (Just str) func = withCStringLen str func
 
 watchFlag Watch   = 1
 watchFlag NoWatch = 0
@@ -200,16 +213,17 @@ recvTimeout zh = withForeignPtr zh zoo_recv_timeout
 
 state zh = withForeignPtr zh zoo_state >>= (return . zooState)
 
-create zh path value flags = do
+create zh path value acl flags = do
   (_, newPath) <- throwErrnoIf ((/=0) . fst) ("create: " ++ path) $
     withForeignPtr zh (\zhPtr ->
       withCString path (\pathPtr ->
-        withCStringLen value (\(valuePtr, valueLen) ->
-          allocaBytes pathBufferSize (\buf -> do
-            err <- zoo_create zhPtr pathPtr valuePtr valueLen
-                     nullPtr (createModeInt flags) buf pathBufferSize
-            bufStr <- peekCString buf
-            return (err, bufStr)))))
+        withAclVector acl (\aclPtr ->
+          withMaybeCStringLen value (\(valuePtr, valueLen) ->
+            allocaBytes pathBufferSize (\buf -> do
+              err <- zoo_create zhPtr pathPtr valuePtr valueLen
+                       aclPtr (createModeInt flags) buf pathBufferSize
+              bufStr <- peekCString buf
+              return (err, bufStr))))))
   return newPath
 
 delete zh path version =
