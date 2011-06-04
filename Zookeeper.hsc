@@ -5,7 +5,7 @@ module Zookeeper (
   init, close,
   recvTimeout, state,
   create, delete, get,
-  createFlags,
+  defaultCreateFlags,
   WatcherFunc, State(..), Watch(..), EventType(..),
   CreateFlags(..), Acl(..)) where
 
@@ -68,13 +68,13 @@ type WatcherFunc = ZHandle -> EventType -> State -> String -> IO ()
 
 -- Exported interface:
 
+defaultCreateFlags :: CreateFlags
+
 init  :: String -> WatcherFunc -> Int -> IO ZHandle
 close :: ZHandle -> IO ()
 
 recvTimeout :: ZHandle -> IO Int
 state       :: ZHandle -> IO State
-
-createFlags :: CreateFlags
 
 create :: ZHandle -> String -> String -> CreateFlags -> IO String
 delete :: ZHandle -> String -> Int -> IO ()
@@ -166,6 +166,8 @@ valueBufferSize = 2048
 
 -- Implementation of exported functions:
 
+defaultCreateFlags = CreateFlags True False
+
 init host watcher timeout =
   withCString host (\csHost -> do
     watcherPtr <- wrapWatcher watcher
@@ -179,8 +181,6 @@ close = finalizeForeignPtr
 recvTimeout zh = withForeignPtr zh zoo_recv_timeout
 
 state zh = withForeignPtr zh zoo_state >>= (return . zooState)
-
-createFlags = CreateFlags True False
 
 create zh path value flags = do
   (_, newPath) <- throwErrnoIf ((/=0) . fst) ("create: " ++ path) $
