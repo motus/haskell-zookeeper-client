@@ -28,12 +28,12 @@ data VoidBlob = VoidBlob -- C pointer placeholder
 type VoidPtr  = Ptr VoidBlob
 
 data State = ExpiredSession | AuthFailed | Connecting |
-             Associating | Connected deriving (Show)
+             Associating | Connected deriving (Eq, Show)
 
 data EventType = Created | Deleted | Changed | Child |
-                 Session | NotWatching
+                 Session | NotWatching deriving (Eq, Show)
 
-data Watch = Watch | NoWatch deriving (Show)
+data Watch = Watch | NoWatch deriving (Eq, Show)
 
 data CreateMode = CreateMode {
   create_ephemeral :: Bool,
@@ -49,9 +49,10 @@ data Acl = Acl {
   acl_delete :: Bool,
   acl_admin  :: Bool,
   acl_all    :: Bool
-}
+} deriving (Eq, Show)
 
-data Acls = OpenAclUnsafe | ReadAclUnsafe | CreatorAllAcl | AclList [Acl]
+data Acls = OpenAclUnsafe | ReadAclUnsafe | CreatorAllAcl |
+            AclList [Acl] deriving (Eq, Show)
 
 data AclsBlob = AclsBlob
 
@@ -67,7 +68,7 @@ data Stat = Stat {
   stat_dataLength     :: Word32,
   stat_numChildren    :: Word32,
   stat_pzxid          :: Word64
-}
+} deriving (Show)
 
 type WatcherImpl = Ptr ZHBlob -> Int -> Int -> CString -> VoidPtr -> IO ()
 type WatcherFunc = ZHandle -> EventType -> State -> String -> IO ()
@@ -86,7 +87,7 @@ create :: ZHandle -> String -> Maybe String ->
           Acls -> CreateMode -> IO String
 
 delete :: ZHandle -> String -> Int -> IO ()
-get    :: ZHandle -> String -> Watch -> IO String
+get    :: ZHandle -> String -> Watch -> IO (String, Stat)
 
 -- C functions:
 
@@ -195,6 +196,22 @@ withAclVector (AclList acls) func =
               (#poke struct ACL, id.id    ) ptr idPtr
               copyAcls rest base (plusPtr ptr (#size struct ACL)) func))
 
+copyStat stat = do
+  stat_czxid          <- (#peek struct Stat, czxid         ) stat
+  stat_mzxid          <- (#peek struct Stat, mzxid         ) stat
+  stat_ctime          <- (#peek struct Stat, ctime         ) stat
+  stat_mtime          <- (#peek struct Stat, mtime         ) stat
+  stat_version        <- (#peek struct Stat, version       ) stat
+  stat_cversion       <- (#peek struct Stat, cversion      ) stat
+  stat_aversion       <- (#peek struct Stat, aversion      ) stat
+  stat_ephemeralOwner <- (#peek struct Stat, ephemeralOwner) stat
+  stat_dataLength     <- (#peek struct Stat, dataLength    ) stat
+  stat_numChildren    <- (#peek struct Stat, numChildren   ) stat
+  stat_pzxid          <- (#peek struct Stat, pzxid         ) stat
+  return (Stat stat_czxid stat_mzxid stat_ctime stat_mtime
+    stat_version stat_cversion stat_aversion
+    stat_ephemeralOwner stat_dataLength stat_numChildren stat_pzxid)
+
 withMaybeCStringLen Nothing    func = func (nullPtr, -1)
 withMaybeCStringLen (Just str) func = withCStringLen str func
 
@@ -246,11 +263,14 @@ get zh path watch = do
     withForeignPtr zh (\zhPtr ->
       withCString path (\pathPtr ->
         alloca (\bufLen ->
-          allocaBytes valueBufferSize (\buf -> do
-            poke bufLen valueBufferSize
-            err <- zoo_get zhPtr pathPtr (watchFlag watch) buf bufLen nullPtr
-            resultLen <- peek bufLen
-            bufStr <- peekCStringLen (buf, resultLen)
-            return (err, bufStr)))))
+          allocaBytes valueBufferSize (\buf ->
+            allocaBytes (#size struct Stat) (\statPtr -> do
+              poke bufLen valueBufferSize
+              err <- zoo_get zhPtr pathPtr
+                       (watchFlag watch) buf bufLen statPtr
+              resultLen <- peek bufLen
+              bufStr <- peekCStringLen (buf, resultLen)
+              stat <- copyStat statPtr
+              return (err, (bufStr, stat)))))))
   return val
 
