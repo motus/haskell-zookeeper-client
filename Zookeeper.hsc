@@ -5,6 +5,7 @@ module Zookeeper (
   init, close,
   recvTimeout, state,
   create, delete, get, getChildren, set,
+  getAcl, setAcl,
   defaultCreateMode,
   WatcherFunc, State(..), Watch(..), EventType(..),
   CreateMode(..), Acl(..), Acls(..), Stat(..)) where
@@ -22,11 +23,8 @@ import Foreign.C.String
 
 -- Exported data types:
 
-data ZHBlob   = ZHBlob
-type ZHandle  = ForeignPtr ZHBlob
-
-data VoidBlob = VoidBlob -- C pointer placeholder
-type VoidPtr  = Ptr VoidBlob
+data ZHBlob  = ZHBlob
+type ZHandle = ForeignPtr ZHBlob
 
 data State = ExpiredSession | AuthFailed | Connecting |
              Associating | Connected deriving (Eq, Show)
@@ -55,8 +53,6 @@ data Acl = Acl {
 data Acls = OpenAclUnsafe | ReadAclUnsafe | CreatorAllAcl |
             AclList [Acl] deriving (Eq, Show)
 
-data AclsBlob = AclsBlob
-
 data Stat = Stat {
   stat_czxid          :: Word64,
   stat_mzxid          :: Word64,
@@ -78,21 +74,30 @@ type WatcherFunc = ZHandle -> EventType -> State -> String -> IO ()
 
 defaultCreateMode :: CreateMode
 
-init  :: String -> WatcherFunc -> Int -> IO ZHandle
-close :: ZHandle -> IO ()
+init        :: String -> WatcherFunc -> Int -> IO ZHandle
+close       :: ZHandle -> IO ()
 
 recvTimeout :: ZHandle -> IO Int
 state       :: ZHandle -> IO State
 
-create :: ZHandle -> String -> Maybe String ->
-          Acls -> CreateMode -> IO String
+create      :: ZHandle -> String -> Maybe String ->
+               Acls -> CreateMode -> IO String
 
 delete      :: ZHandle -> String -> Int -> IO ()
 get         :: ZHandle -> String -> Watch -> IO (String, Stat)
 getChildren :: ZHandle -> String -> Watch -> IO [String]
 set         :: ZHandle -> String -> Maybe String -> Int -> IO ()
 
+getAcl      :: ZHandle -> String -> IO (Acls, Stat)
+setAcl      :: ZHandle -> String -> Int -> Acls -> IO ()
+
 -- C functions:
+
+data VoidBlob = VoidBlob -- C pointer placeholder
+type VoidPtr  = Ptr VoidBlob
+
+data AclsBlob = AclsBlob
+data StatBlob = StatBlob
 
 #include <zookeeper.h>
 
@@ -140,7 +145,8 @@ foreign import ccall unsafe
 
 foreign import ccall unsafe
   "zookeeper.h zoo_get" zoo_get ::
-  Ptr ZHBlob -> CString -> Int -> CString -> Ptr Int -> VoidPtr -> IO Int
+  Ptr ZHBlob -> CString -> Int -> CString ->
+  Ptr Int -> Ptr StatBlob -> IO Int
 
 foreign import ccall unsafe
   "zookeeper.h zoo_set" zoo_set ::
@@ -149,6 +155,14 @@ foreign import ccall unsafe
 foreign import ccall unsafe
   "zookeeper.h zoo_get_children" zoo_get_children ::
   Ptr ZHBlob -> CString -> Int -> VoidPtr -> IO Int
+
+foreign import ccall unsafe
+  "zookeeper.h zoo_get_acl" zoo_get_acl ::
+  Ptr ZHBlob -> CString -> Ptr AclsBlob -> Ptr StatBlob -> IO Int
+
+foreign import ccall unsafe
+  "zookeeper.h zoo_set_acl" zoo_set_acl ::
+  Ptr ZHBlob -> CString -> Int -> Ptr AclsBlob -> IO Int
 
 -- Internal functions:
 
@@ -196,16 +210,19 @@ withAclVector (AclList acls) func =
   allocaBytes (#size struct ACL_vector) (\avPtr -> do
     (#poke struct ACL_vector, count) avPtr len
     allocaBytes (len * (#size struct ACL)) (\aclPtr ->
-      copyAcls acls aclPtr aclPtr func))
+      writeAcls acls aclPtr aclPtr func))
   where len = length acls
-        copyAcls [] base _ func = func base
-        copyAcls (acl:rest) base ptr func =
+        writeAcls [] base _ func = func base
+        writeAcls (acl:rest) base ptr func =
           withCString (acl_scheme acl) (\schemePtr ->
             withCString (acl_id acl) (\idPtr -> do
               (#poke struct ACL, perms    ) ptr (aclPermsInt acl)
               (#poke struct ACL, id.scheme) ptr schemePtr
               (#poke struct ACL, id.id    ) ptr idPtr
-              copyAcls rest base (plusPtr ptr (#size struct ACL)) func))
+              writeAcls rest base (plusPtr ptr (#size struct ACL)) func))
+
+-- FIXME: implement later!!
+copyAcls _ = return OpenAclUnsafe
 
 copyStat stat = do
   stat_czxid          <- (#peek struct Stat, czxid         ) stat
@@ -237,6 +254,7 @@ watchFlag NoWatch = 0
 pathBufferSize   =  1024
 valueBufferSize  = 20480
 stringVectorSize =  1024
+aclsVectorSize   =    64
 
 -- Implementation of exported functions:
 
@@ -310,4 +328,26 @@ set zh path value version =
       withCString path (\pathPtr ->
         withMaybeCStringLen value (\(valuePtr, valueLen) ->
           zoo_set zhPtr pathPtr valuePtr valueLen version)))
+
+getAcl zh path = do
+  (_, val) <- throwErrnoIf ((/=0) . fst) ("get_acl: " ++ path) $
+    withForeignPtr zh (\zhPtr ->
+      withCString path (\pathPtr ->
+        allocaBytes (#size struct ACL_vector) (\aclsPtr ->
+          allocaBytes (aclsVectorSize * (#size struct ACL)) (\aclsData ->
+            allocaBytes (#size struct Stat) (\statPtr -> do
+              (#poke struct ACL_vector, count) aclsPtr aclsVectorSize
+              (#poke struct ACL_vector, data ) aclsPtr aclsData
+              err  <- zoo_get_acl zhPtr pathPtr aclsPtr statPtr
+              acls <- copyAcls aclsPtr
+              stat <- copyStat statPtr
+              return (err, (acls, stat)))))))
+  return val
+
+setAcl zh path version acls =
+  throwErrnoIf_ (/=0) ("set_acl: " ++ path) $
+    withForeignPtr zh (\zhPtr ->
+      withCString path (\pathPtr ->
+        withAclVector acls (\aclsPtr ->
+          zoo_set_acl zhPtr pathPtr version aclsPtr)))
 
