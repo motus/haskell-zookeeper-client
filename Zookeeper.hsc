@@ -4,7 +4,7 @@
 module Zookeeper (
   init, close,
   recvTimeout, state,
-  create, delete, get,
+  create, delete, get, set,
   defaultCreateMode,
   WatcherFunc, State(..), Watch(..), EventType(..),
   CreateMode(..), Acl(..), Acls(..), Stat(..)) where
@@ -88,6 +88,7 @@ create :: ZHandle -> String -> Maybe String ->
 
 delete :: ZHandle -> String -> Int -> IO ()
 get    :: ZHandle -> String -> Watch -> IO (String, Stat)
+set    :: ZHandle -> String -> Maybe String -> Int -> IO ()
 
 -- C functions:
 
@@ -122,14 +123,6 @@ foreign import ccall unsafe
   Ptr ZHBlob -> CString -> CString -> Int -> Ptr AclsBlob ->
   Int -> CString -> Int -> IO Int
 
-foreign import ccall unsafe
-  "zookeeper.h zoo_delete" zoo_delete ::
-  Ptr ZHBlob -> CString -> Int -> IO Int
-
-foreign import ccall unsafe
-  "zookeeper.h zoo_get" zoo_get ::
-  Ptr ZHBlob -> CString -> Int -> CString -> Ptr Int -> VoidPtr -> IO Int
-
 foreign import ccall safe "zookeeper.h &ZOO_OPEN_ACL_UNSAFE"
    zoo_open_acl_unsafe_ptr :: Ptr AclsBlob
 
@@ -138,6 +131,18 @@ foreign import ccall safe "zookeeper.h &ZOO_READ_ACL_UNSAFE"
 
 foreign import ccall safe "zookeeper.h &ZOO_CREATOR_ALL_ACL"
    zoo_creator_all_ptr :: Ptr AclsBlob
+
+foreign import ccall unsafe
+  "zookeeper.h zoo_delete" zoo_delete ::
+  Ptr ZHBlob -> CString -> Int -> IO Int
+
+foreign import ccall unsafe
+  "zookeeper.h zoo_get" zoo_get ::
+  Ptr ZHBlob -> CString -> Int -> CString -> Ptr Int -> VoidPtr -> IO Int
+
+foreign import ccall unsafe
+  "zookeeper.h zoo_set" zoo_set ::
+  Ptr ZHBlob -> CString -> CString -> Int -> Int -> IO Int
 
 -- Internal functions:
 
@@ -273,4 +278,11 @@ get zh path watch = do
               stat <- copyStat statPtr
               return (err, (bufStr, stat)))))))
   return val
+
+set zh path value version =
+  throwErrnoIf_ (/=0) ("set: " ++ path) $
+    withForeignPtr zh (\zhPtr ->
+      withCString path (\pathPtr ->
+        withMaybeCStringLen value (\(valuePtr, valueLen) ->
+          zoo_set zhPtr pathPtr valuePtr valueLen version)))
 
