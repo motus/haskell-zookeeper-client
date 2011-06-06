@@ -144,6 +144,10 @@ foreign import ccall unsafe
   "zookeeper.h zoo_set" zoo_set ::
   Ptr ZHBlob -> CString -> CString -> Int -> Int -> IO Int
 
+foreign import ccall unsafe
+  "zookeeper.h zoo_get_children" zoo_get_children ::
+  Ptr ZHBlob -> CString -> CString -> Int -> Int -> IO Int
+
 -- Internal functions:
 
 wrapWatcher func =
