@@ -4,7 +4,7 @@
 module Zookeeper (
   init, close,
   recvTimeout, state,
-  create, delete, get, set,
+  create, delete, get, getChildren, set,
   defaultCreateMode,
   WatcherFunc, State(..), Watch(..), EventType(..),
   CreateMode(..), Acl(..), Acls(..), Stat(..)) where
@@ -87,9 +87,10 @@ state       :: ZHandle -> IO State
 create :: ZHandle -> String -> Maybe String ->
           Acls -> CreateMode -> IO String
 
-delete :: ZHandle -> String -> Int -> IO ()
-get    :: ZHandle -> String -> Watch -> IO (String, Stat)
-set    :: ZHandle -> String -> Maybe String -> Int -> IO ()
+delete      :: ZHandle -> String -> Int -> IO ()
+get         :: ZHandle -> String -> Watch -> IO (String, Stat)
+getChildren :: ZHandle -> String -> Watch -> IO [String]
+set         :: ZHandle -> String -> Maybe String -> Int -> IO ()
 
 -- C functions:
 
@@ -147,7 +148,7 @@ foreign import ccall unsafe
 
 foreign import ccall unsafe
   "zookeeper.h zoo_get_children" zoo_get_children ::
-  Ptr ZHBlob -> CString -> CString -> Int -> Int -> IO Int
+  Ptr ZHBlob -> CString -> Int -> VoidPtr -> IO Int
 
 -- Internal functions:
 
@@ -233,8 +234,9 @@ withMaybeCStringLen (Just str) func = withCStringLen str func
 watchFlag Watch   = 1
 watchFlag NoWatch = 0
 
-pathBufferSize  = 1024
-valueBufferSize = 2048
+pathBufferSize   =  1024
+valueBufferSize  = 20480
+stringVectorSize =  1024
 
 -- Implementation of exported functions:
 
@@ -287,6 +289,19 @@ get zh path watch = do
               bufStr <- peekCStringLen (buf, resultLen)
               stat <- copyStat statPtr
               return (err, (bufStr, stat)))))))
+  return val
+
+getChildren zh path watch = do
+  (_, val) <- throwErrnoIf ((/=0) . fst) ("get_children: " ++ path) $
+    withForeignPtr zh (\zhPtr ->
+      withCString path (\pathPtr ->
+        allocaBytes (#size struct String_vector) (\vecPtr ->
+          allocaBytes (stringVectorSize * (#size char*)) (\stringsPtr -> do
+            (#poke struct String_vector, count) vecPtr stringVectorSize
+            (#poke struct String_vector, data ) vecPtr stringsPtr
+            err <- zoo_get_children zhPtr pathPtr (watchFlag watch) vecPtr
+            vec <- copyStringVec vecPtr
+            return (err, vec)))))
   return val
 
 set zh path value version =
