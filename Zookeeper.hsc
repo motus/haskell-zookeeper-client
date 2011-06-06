@@ -13,6 +13,7 @@ import Prelude hiding (init)
 
 import Data.Bits
 import Data.Word
+import Control.Monad
 
 import Foreign
 import Foreign.C.Types
@@ -220,6 +221,11 @@ copyStat stat = do
   return (Stat stat_czxid stat_mzxid stat_ctime stat_mtime
     stat_version stat_cversion stat_aversion
     stat_ephemeralOwner stat_dataLength stat_numChildren stat_pzxid)
+
+copyStringVec bufPtr = do
+  len <- (#peek struct String_vector, count) bufPtr
+  vec <- (#peek struct String_vector, data ) bufPtr
+  mapM (peekCString <=< peek . plusPtr vec . (* #size char*)) [0..len-1]
 
 withMaybeCStringLen Nothing    func = func (nullPtr, -1)
 withMaybeCStringLen (Just str) func = withCStringLen str func
