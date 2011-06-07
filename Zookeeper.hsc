@@ -4,7 +4,7 @@
 module Zookeeper (
   init, close,
   recvTimeout, state, isUnrecoverable, setDebugLevel,
-  create, delete, get, getChildren, set,
+  create, delete, exists, get, getChildren, set,
   getAcl, setAcl,
   defaultCreateMode, createAcl,
   WatcherFunc, State(..), Watch(..), LogLevel(..),
@@ -92,6 +92,7 @@ create      :: ZHandle -> String -> Maybe String ->
                Acls -> CreateMode -> IO String
 
 delete      :: ZHandle -> String -> Int -> IO ()
+exists      :: ZHandle -> String -> Watch -> IO (Maybe Stat)
 get         :: ZHandle -> String -> Watch -> IO (String, Stat)
 getChildren :: ZHandle -> String -> Watch -> IO [String]
 set         :: ZHandle -> String -> Maybe String -> Int -> IO ()
@@ -150,6 +151,10 @@ foreign import ccall safe "zookeeper.h &ZOO_CREATOR_ALL_ACL"
 foreign import ccall unsafe
   "zookeeper.h zoo_delete" zoo_delete ::
   Ptr ZHBlob -> CString -> Int -> IO Int
+
+foreign import ccall unsafe
+  "zookeeper.h zoo_exists" zoo_exists ::
+  Ptr ZHBlob -> CString -> Int -> Ptr StatBlob -> IO Int
 
 foreign import ccall unsafe
   "zookeeper.h zoo_get" zoo_get ::
@@ -341,6 +346,18 @@ delete zh path version =
     withForeignPtr zh (\zhPtr ->
       withCString path (\pathPtr ->
         zoo_delete zhPtr pathPtr version))
+
+exists zh path watch =
+  withForeignPtr zh (\zhPtr ->
+    withCString path (\pathPtr ->
+      allocaBytes (#size struct Stat) (\statPtr -> do
+        err <- throwErrnoIf
+                 (not . flip elem [(#const ZNONODE), (#const ZOK)])
+                 ("exists: " ++ path) $
+                 zoo_exists zhPtr pathPtr (watchFlag watch) statPtr
+        getStat err statPtr)))
+  where getStat (#const ZOK) ptr = copyStat ptr >>= (return . Just)
+        getStat _ _ = return Nothing
 
 get zh path watch = do
   (_, val) <- throwErrnoIf ((/=0) . fst) ("get: " ++ path) $
