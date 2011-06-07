@@ -202,7 +202,10 @@ aclPermsInt (Acl acl_scheme acl_id acl_read acl_write
   bitOr acl_admin  (#const ZOO_PERM_ADMIN ) $
   bitOr acl_all    (#const ZOO_PERM_ALL   ) 0
 
-aclSetFlags acl flags = acl {
+createAcl :: String -> String -> Word32 -> Acl
+createAcl aclScheme aclId flags = Acl {
+  acl_scheme = aclScheme,
+  acl_id     = aclId,
   acl_read   = flags .&. (#const ZOO_PERM_READ  ) /= 0,
   acl_write  = flags .&. (#const ZOO_PERM_WRITE ) /= 0,
   acl_create = flags .&. (#const ZOO_PERM_CREATE) /= 0,
@@ -230,8 +233,17 @@ withAclVector (AclList acls) func =
               (#poke struct ACL, id.id    ) ptr idPtr
               writeAcls rest base (plusPtr ptr (#size struct ACL)) func))
 
--- FIXME: implement later!!
-copyAcls _ = return OpenAclUnsafe
+copyAclVec avPtr = do
+  len  <- (#peek struct ACL_vector, count) avPtr
+  vec  <- (#peek struct ACL_vector, data ) avPtr
+  acls <- mapM (copyAcl . plusPtr vec . (* #size struct ACL)) [0..len-1]
+  return $ AclList acls
+
+copyAcl ptr = do
+  perms  <- (#peek struct ACL, perms    ) ptr
+  scheme <- (#peek struct ACL, id.scheme) ptr >>= peekCString
+  idStr  <- (#peek struct ACL, id.id    ) ptr >>= peekCString
+  return $ createAcl scheme idStr perms
 
 copyStat stat = do
   stat_czxid          <- (#peek struct Stat, czxid         ) stat
@@ -348,7 +360,7 @@ getAcl zh path = do
               (#poke struct ACL_vector, count) aclsPtr aclsVectorSize
               (#poke struct ACL_vector, data ) aclsPtr aclsData
               err  <- zoo_get_acl zhPtr pathPtr aclsPtr statPtr
-              acls <- copyAcls aclsPtr
+              acls <- copyAclVec aclsPtr
               stat <- copyStat statPtr
               return (err, (acls, stat)))))))
   return val
