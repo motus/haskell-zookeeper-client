@@ -3,7 +3,7 @@
 
 module Zookeeper (
   init, close,
-  recvTimeout, state,
+  recvTimeout, state, isUnrecoverable,
   create, delete, get, getChildren, set,
   getAcl, setAcl,
   defaultCreateMode, createAcl,
@@ -73,6 +73,8 @@ type WatcherFunc = ZHandle -> EventType -> State -> String -> IO ()
 -- Exported interface:
 
 defaultCreateMode :: CreateMode
+
+isUnrecoverable   :: ZHandle -> IO Bool
 
 createAcl   :: String -> String -> Word32 -> Acl
 
@@ -165,6 +167,10 @@ foreign import ccall unsafe
 foreign import ccall unsafe
   "zookeeper.h zoo_set_acl" zoo_set_acl ::
   Ptr ZHBlob -> CString -> Int -> Ptr AclsBlob -> IO Int
+
+foreign import ccall unsafe
+  "zookeeper.h is_unrecoverable" is_unrecoverable ::
+  Ptr ZHBlob -> IO Int
 
 -- Internal functions:
 
@@ -295,6 +301,12 @@ close = finalizeForeignPtr
 recvTimeout zh = withForeignPtr zh zoo_recv_timeout
 
 state zh = withForeignPtr zh zoo_state >>= (return . zooState)
+
+isUnrecoverable zh = do
+  err <- throwErrnoIf
+           (not . flip elem [(#const ZINVALIDSTATE), (#const ZOK)])
+           "is_unrecoverable" $ withForeignPtr zh is_unrecoverable
+  return $ err /= (#const ZOK)
 
 create zh path value acl flags = do
   (_, newPath) <- throwErrnoIf ((/=0) . fst) ("create: " ++ path) $
