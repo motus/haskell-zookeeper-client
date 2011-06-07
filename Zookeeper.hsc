@@ -3,12 +3,12 @@
 
 module Zookeeper (
   init, close,
-  recvTimeout, state, isUnrecoverable,
+  recvTimeout, state, isUnrecoverable, setDebugLevel,
   create, delete, get, getChildren, set,
   getAcl, setAcl,
   defaultCreateMode, createAcl,
-  WatcherFunc, State(..), Watch(..), EventType(..),
-  CreateMode(..), Acl(..), Acls(..), Stat(..)) where
+  WatcherFunc, State(..), Watch(..), LogLevel(..),
+  EventType(..), CreateMode(..), Acl(..), Acls(..), Stat(..)) where
 
 import Prelude hiding (init)
 
@@ -33,6 +33,9 @@ data EventType = Created | Deleted | Changed | Child |
                  Session | NotWatching deriving (Eq, Show)
 
 data Watch = Watch | NoWatch deriving (Eq, Show)
+
+data LogLevel = LogError | LogWarn | LogInfo | LogDebug
+                deriving (Eq, Ord, Show)
 
 data CreateMode = CreateMode {
   create_ephemeral :: Bool,
@@ -75,6 +78,7 @@ type WatcherFunc = ZHandle -> EventType -> State -> String -> IO ()
 defaultCreateMode :: CreateMode
 
 isUnrecoverable   :: ZHandle -> IO Bool
+setDebugLevel     :: LogLevel -> IO ()
 
 createAcl   :: String -> String -> Word32 -> Acl
 
@@ -172,6 +176,10 @@ foreign import ccall unsafe
   "zookeeper.h is_unrecoverable" is_unrecoverable ::
   Ptr ZHBlob -> IO Int
 
+foreign import ccall unsafe
+  "zookeeper.h zoo_set_debug_level" zoo_set_debug_level ::
+  Int -> IO ()
+
 -- Internal functions:
 
 wrapWatcher func =
@@ -192,6 +200,11 @@ zooEvent (#const ZOO_CHANGED_EVENT    ) = Changed
 zooEvent (#const ZOO_CHILD_EVENT      ) = Child
 zooEvent (#const ZOO_SESSION_EVENT    ) = Session
 zooEvent (#const ZOO_NOTWATCHING_EVENT) = NotWatching
+
+zooLogLevel LogError = (#const ZOO_LOG_LEVEL_ERROR)
+zooLogLevel LogWarn  = (#const ZOO_LOG_LEVEL_WARN )
+zooLogLevel LogInfo  = (#const ZOO_LOG_LEVEL_INFO )
+zooLogLevel LogDebug = (#const ZOO_LOG_LEVEL_DEBUG)
 
 bitOr True val res = val .|. res
 bitOr False _  res = res
@@ -307,6 +320,8 @@ isUnrecoverable zh = do
            (not . flip elem [(#const ZINVALIDSTATE), (#const ZOK)])
            "is_unrecoverable" $ withForeignPtr zh is_unrecoverable
   return $ err /= (#const ZOK)
+
+setDebugLevel = zoo_set_debug_level . zooLogLevel
 
 create zh path value acl flags = do
   (_, newPath) <- throwErrnoIf ((/=0) . fst) ("create: " ++ path) $
