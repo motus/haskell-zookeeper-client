@@ -202,6 +202,15 @@ aclPermsInt (Acl acl_scheme acl_id acl_read acl_write
   bitOr acl_admin  (#const ZOO_PERM_ADMIN ) $
   bitOr acl_all    (#const ZOO_PERM_ALL   ) 0
 
+aclSetFlags acl flags = acl {
+  acl_read   = flags .&. (#const ZOO_PERM_READ  ) /= 0,
+  acl_write  = flags .&. (#const ZOO_PERM_WRITE ) /= 0,
+  acl_create = flags .&. (#const ZOO_PERM_CREATE) /= 0,
+  acl_delete = flags .&. (#const ZOO_PERM_DELETE) /= 0,
+  acl_admin  = flags .&. (#const ZOO_PERM_ADMIN ) /= 0,
+  acl_all    = flags .&. (#const ZOO_PERM_ALL   ) /= 0
+}
+
 withAclVector OpenAclUnsafe func = func zoo_open_acl_unsafe_ptr
 withAclVector ReadAclUnsafe func = func zoo_read_acl_unsafe_ptr
 withAclVector CreatorAllAcl func = func zoo_creator_all_ptr
