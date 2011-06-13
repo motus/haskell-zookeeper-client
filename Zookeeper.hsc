@@ -309,9 +309,8 @@ createAcl aclScheme aclId flags = Acl {
 init host watcher timeout =
   withCString host (\csHost -> do
     watcherPtr <- wrapWatcher watcher
-    zh <- throwErrnoIfNull
-      ("init: " ++ host)
-      (zookeeper_init csHost watcherPtr timeout nullPtr nullPtr 0)
+    zh <- throwErrnoIfNull ("init: " ++ host) $
+      zookeeper_init csHost watcherPtr timeout nullPtr nullPtr 0
     newForeignPtr zookeeper_close_ptr zh)
 
 close = finalizeForeignPtr
@@ -320,26 +319,23 @@ recvTimeout zh = withForeignPtr zh zoo_recv_timeout
 
 state zh = withForeignPtr zh zoo_state >>= (return . zooState)
 
-isUnrecoverable zh = do
-  err <- throwErrnoIf
-           (not . flip elem [(#const ZINVALIDSTATE), (#const ZOK)])
-           "is_unrecoverable" $ withForeignPtr zh is_unrecoverable
-  return $ err /= (#const ZOK)
+isUnrecoverable zh = throwErrnoIf
+  (not . flip elem [(#const ZINVALIDSTATE), (#const ZOK)])
+  "is_unrecoverable"
+  (withForeignPtr zh is_unrecoverable) >>= return . (/= #const ZOK)
 
 setDebugLevel = zoo_set_debug_level . zooLogLevel
 
-create zh path value acl flags = do
-  (_, newPath) <- throwErrnoIf ((/=0) . fst) ("create: " ++ path) $
-    withForeignPtr zh (\zhPtr ->
-      withCString path (\pathPtr ->
-        withAclVector acl (\aclPtr ->
-          withMaybeCStringLen value (\(valuePtr, valueLen) ->
-            allocaBytes pathBufferSize (\buf -> do
-              err <- zoo_create zhPtr pathPtr valuePtr valueLen
-                       aclPtr (createModeInt flags) buf pathBufferSize
-              bufStr <- peekCString buf
-              return (err, bufStr))))))
-  return newPath
+create zh path value acl flags =
+  withForeignPtr zh (\zhPtr ->
+    withCString path (\pathPtr ->
+      withAclVector acl (\aclPtr ->
+        withMaybeCStringLen value (\(valuePtr, valueLen) ->
+          allocaBytes pathBufferSize (\buf -> do
+            throwErrnoIf_ (/=0) ("create: " ++ path) $
+              zoo_create zhPtr pathPtr valuePtr valueLen
+                aclPtr (createModeInt flags) buf pathBufferSize
+            peekCString buf)))))
 
 delete zh path version =
   throwErrnoIf_ (/=0) ("delete: " ++ path) $
@@ -359,61 +355,56 @@ exists zh path watch =
   where getStat (#const ZOK) ptr = copyStat ptr >>= (return . Just)
         getStat _ _ = return Nothing
 
-get zh path watch = do
-  (_, val) <- throwErrnoIf ((/=0) . fst) ("get: " ++ path) $
-    withForeignPtr zh (\zhPtr ->
-      withCString path (\pathPtr ->
-        alloca (\bufLen ->
-          allocaBytes valueBufferSize (\buf ->
-            allocaBytes (#size struct Stat) (\statPtr -> do
-              poke bufLen valueBufferSize
-              err <- zoo_get zhPtr pathPtr
-                       (watchFlag watch) buf bufLen statPtr
-              resultLen <- peek bufLen
-              bufStr <- peekCStringLen (buf, resultLen)
-              stat <- copyStat statPtr
-              return (err, (bufStr, stat)))))))
-  return val
+get zh path watch =
+  withForeignPtr zh (\zhPtr ->
+    withCString path (\pathPtr ->
+      alloca (\bufLen ->
+        allocaBytes valueBufferSize (\buf ->
+          allocaBytes (#size struct Stat) (\statPtr -> do
+            poke bufLen valueBufferSize
+            throwErrnoIf_ (/=0) ("get: " ++ path) $
+              zoo_get zhPtr pathPtr (watchFlag watch) buf bufLen statPtr
+            resultLen <- peek bufLen
+            bufStr <- peekCStringLen (buf, resultLen)
+            stat <- copyStat statPtr
+            return (bufStr, stat))))))
 
-getChildren zh path watch = do
-  (_, val) <- throwErrnoIf ((/=0) . fst) ("get_children: " ++ path) $
-    withForeignPtr zh (\zhPtr ->
-      withCString path (\pathPtr ->
-        allocaBytes (#size struct String_vector) (\vecPtr ->
-          allocaBytes (stringVectorSize * (#size char*)) (\stringsPtr -> do
-            (#poke struct String_vector, count) vecPtr stringVectorSize
-            (#poke struct String_vector, data ) vecPtr stringsPtr
-            err <- zoo_get_children zhPtr pathPtr (watchFlag watch) vecPtr
-            vec <- copyStringVec vecPtr
-            return (err, vec)))))
-  return val
+getChildren zh path watch =
+  withForeignPtr zh (\zhPtr ->
+    withCString path (\pathPtr ->
+      allocaBytes (#size struct String_vector) (\vecPtr ->
+        allocaBytes (stringVectorSize * (#size char*)) (\stringsPtr -> do
+          (#poke struct String_vector, count) vecPtr stringVectorSize
+          (#poke struct String_vector, data ) vecPtr stringsPtr
+          throwErrnoIf_ (/=0) ("get_children: " ++ path) $
+            zoo_get_children zhPtr pathPtr (watchFlag watch) vecPtr
+          copyStringVec vecPtr))))
 
 set zh path value version =
-  throwErrnoIf_ (/=0) ("set: " ++ path) $
-    withForeignPtr zh (\zhPtr ->
-      withCString path (\pathPtr ->
-        withMaybeCStringLen value (\(valuePtr, valueLen) ->
+  withForeignPtr zh (\zhPtr ->
+    withCString path (\pathPtr ->
+      withMaybeCStringLen value (\(valuePtr, valueLen) ->
+        throwErrnoIf_ (/=0) ("set: " ++ path) $
           zoo_set zhPtr pathPtr valuePtr valueLen version)))
 
-getAcl zh path = do
-  (_, val) <- throwErrnoIf ((/=0) . fst) ("get_acl: " ++ path) $
-    withForeignPtr zh (\zhPtr ->
-      withCString path (\pathPtr ->
-        allocaBytes (#size struct ACL_vector) (\aclsPtr ->
-          allocaBytes (aclsVectorSize * (#size struct ACL)) (\aclsData ->
-            allocaBytes (#size struct Stat) (\statPtr -> do
-              (#poke struct ACL_vector, count) aclsPtr aclsVectorSize
-              (#poke struct ACL_vector, data ) aclsPtr aclsData
-              err  <- zoo_get_acl zhPtr pathPtr aclsPtr statPtr
-              acls <- copyAclVec aclsPtr
-              stat <- copyStat statPtr
-              return (err, (acls, stat)))))))
-  return val
+getAcl zh path =
+  withForeignPtr zh (\zhPtr ->
+    withCString path (\pathPtr ->
+      allocaBytes (#size struct ACL_vector) (\aclsPtr ->
+        allocaBytes (aclsVectorSize * (#size struct ACL)) (\aclsData ->
+          allocaBytes (#size struct Stat) (\statPtr -> do
+            (#poke struct ACL_vector, count) aclsPtr aclsVectorSize
+            (#poke struct ACL_vector, data ) aclsPtr aclsData
+            throwErrnoIf_ (/=0) ("get_acl: " ++ path) $
+              zoo_get_acl zhPtr pathPtr aclsPtr statPtr
+            acls <- copyAclVec aclsPtr
+            stat <- copyStat statPtr
+            return (acls, stat))))))
 
 setAcl zh path version acls =
-  throwErrnoIf_ (/=0) ("set_acl: " ++ path) $
-    withForeignPtr zh (\zhPtr ->
-      withCString path (\pathPtr ->
-        withAclVector acls (\aclsPtr ->
+  withForeignPtr zh (\zhPtr ->
+    withCString path (\pathPtr ->
+      withAclVector acls (\aclsPtr ->
+        throwErrnoIf_ (/=0) ("set_acl: " ++ path) $
           zoo_set_acl zhPtr pathPtr version aclsPtr)))
 
