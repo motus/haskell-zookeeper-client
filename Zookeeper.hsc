@@ -317,12 +317,11 @@ close = finalizeForeignPtr
 
 recvTimeout zh = withForeignPtr zh zoo_recv_timeout
 
-state zh = withForeignPtr zh zoo_state >>= (return . zooState)
+state zh = liftM zooState $ withForeignPtr zh zoo_state
 
-isUnrecoverable zh = throwErrnoIf
+isUnrecoverable zh = liftM (/= #const ZOK) $ throwErrnoIf
   (not . flip elem [(#const ZINVALIDSTATE), (#const ZOK)])
-  "is_unrecoverable"
-  (withForeignPtr zh is_unrecoverable) >>= return . (/= #const ZOK)
+  "is_unrecoverable" (withForeignPtr zh is_unrecoverable)
 
 setDebugLevel = zoo_set_debug_level . zooLogLevel
 
@@ -352,7 +351,7 @@ exists zh path watch =
                  ("exists: " ++ path) $
                  zoo_exists zhPtr pathPtr (watchFlag watch) statPtr
         getStat err statPtr)))
-  where getStat (#const ZOK) ptr = copyStat ptr >>= (return . Just)
+  where getStat (#const ZOK) ptr = liftM Just $ copyStat ptr
         getStat _ _ = return Nothing
 
 get zh path watch =
