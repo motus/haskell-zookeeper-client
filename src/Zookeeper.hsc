@@ -8,7 +8,8 @@ module Zookeeper (
   getAcl, setAcl,
   defaultCreateMode, createAcl,
   WatcherFunc, State(..), Watch(..), LogLevel(..),
-  EventType(..), CreateMode(..), Acl(..), Acls(..), Stat(..)) where
+  EventType(..), CreateMode(..), Acl(..), Acls(..), Stat(..),
+  ZHandle(..)) where
 
 import Prelude hiding (init)
 
