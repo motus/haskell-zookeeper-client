@@ -1,0 +1,24 @@
+Name:           zookeeper
+Version:        0.0.1
+Description:    Haskell bindings for zookeeper
+License:        OtherLicense
+License-file:   LICENSE
+Author:         Sergiy Matusevych
+Maintainer:     Jeremy Groven
+Build-Type:     Simple
+Cabal-Version:  >=1.8
+
+Library
+  Ghc-Options: -threaded -O2
+  Extra-Libraries: zookeeper_mt
+  Build-Depends: base >= 4 && < 5
+  hs-source-dirs: src
+  Exposed-modules: Zookeeper
+
+Executable ZooClient
+  Ghc-Options: -threaded -O2
+  Extra-Libraries: zookeeper_mt
+  Build-Depends: base >= 4 && < 5
+               , zookeeper
+  hs-source-dirs: src
+  Main-is: ZooClient.hs

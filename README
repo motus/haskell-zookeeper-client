@@ -1,0 +1,8 @@
+This is a Haskell binding to the ZooKeeper C library.  A simple usage example
+is included in src/ZooClient.hs.
+
+If you've installed zookeeper in a non-standard location (which seems pretty
+common for zookeeper), you'll need to run cabal configure with
+--extra-include-dirs and --extra-lib-dirs pointing to where you installed the
+zookeeper headers and libraries.
+
