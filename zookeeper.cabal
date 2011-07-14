@@ -4,7 +4,7 @@ Description:    Haskell bindings for zookeeper
 License:        OtherLicense
 License-file:   LICENSE
 Author:         Sergiy Matusevych
-Maintainer:     Jeremy Groven
+Maintainer:     Sergiy Matusevych
 Build-Type:     Simple
 Cabal-Version:  >=1.8
 
