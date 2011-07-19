@@ -94,7 +94,7 @@ create      :: ZHandle -> String -> Maybe String ->
 
 delete      :: ZHandle -> String -> Int -> IO ()
 exists      :: ZHandle -> String -> Watch -> IO (Maybe Stat)
-get         :: ZHandle -> String -> Watch -> IO (String, Stat)
+get         :: ZHandle -> String -> Watch -> IO (Maybe String, Stat)
 getChildren :: ZHandle -> String -> Watch -> IO [String]
 set         :: ZHandle -> String -> Maybe String -> Int -> IO ()
 
@@ -365,9 +365,13 @@ get zh path watch =
             throwErrnoIf_ (/=0) ("get: " ++ path) $
               zoo_get zhPtr pathPtr (watchFlag watch) buf bufLen statPtr
             resultLen <- peek bufLen
-            bufStr <- peekCStringLen (buf, resultLen)
             stat <- copyStat statPtr
-            return (bufStr, stat))))))
+            if resultLen == 4294967295
+              then
+                return (Nothing, stat)
+              else do
+                bufStr <- peekCStringLen (buf, resultLen)
+                return (Just bufStr, stat))))))
 
 getChildren zh path watch =
   withForeignPtr zh (\zhPtr ->
