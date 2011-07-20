@@ -31,7 +31,7 @@ data State = ExpiredSession | AuthFailed | Connecting |
              Associating | Connected deriving (Eq, Show)
 
 data EventType = Created | Deleted | Changed | Child |
-                 Session | NotWatching | Fake Int deriving (Eq, Show)
+                 Session | NotWatching | Unknown Int deriving (Eq, Show)
 
 data Watch = Watch | NoWatch deriving (Eq, Show)
 
@@ -206,7 +206,7 @@ zooEvent (#const ZOO_CHANGED_EVENT    ) = Changed
 zooEvent (#const ZOO_CHILD_EVENT      ) = Child
 zooEvent (#const ZOO_SESSION_EVENT    ) = Session
 zooEvent (#const ZOO_NOTWATCHING_EVENT) = NotWatching
-zooEvent x = Fake x
+zooEvent x = Unknown x
 
 zooLogLevel LogDisabled = 0
 zooLogLevel LogError    = (#const ZOO_LOG_LEVEL_ERROR)
