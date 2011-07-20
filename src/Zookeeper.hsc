@@ -31,11 +31,11 @@ data State = ExpiredSession | AuthFailed | Connecting |
              Associating | Connected deriving (Eq, Show)
 
 data EventType = Created | Deleted | Changed | Child |
-                 Session | NotWatching deriving (Eq, Show)
+                 Session | NotWatching | Fake Int deriving (Eq, Show)
 
 data Watch = Watch | NoWatch deriving (Eq, Show)
 
-data LogLevel = LogError | LogWarn | LogInfo | LogDebug
+data LogLevel = LogDisabled | LogError | LogWarn | LogInfo | LogDebug
                 deriving (Eq, Ord, Show)
 
 data CreateMode = CreateMode {
@@ -206,11 +206,13 @@ zooEvent (#const ZOO_CHANGED_EVENT    ) = Changed
 zooEvent (#const ZOO_CHILD_EVENT      ) = Child
 zooEvent (#const ZOO_SESSION_EVENT    ) = Session
 zooEvent (#const ZOO_NOTWATCHING_EVENT) = NotWatching
+zooEvent x = Fake x
 
-zooLogLevel LogError = (#const ZOO_LOG_LEVEL_ERROR)
-zooLogLevel LogWarn  = (#const ZOO_LOG_LEVEL_WARN )
-zooLogLevel LogInfo  = (#const ZOO_LOG_LEVEL_INFO )
-zooLogLevel LogDebug = (#const ZOO_LOG_LEVEL_DEBUG)
+zooLogLevel LogDisabled = 0
+zooLogLevel LogError    = (#const ZOO_LOG_LEVEL_ERROR)
+zooLogLevel LogWarn     = (#const ZOO_LOG_LEVEL_WARN )
+zooLogLevel LogInfo     = (#const ZOO_LOG_LEVEL_INFO )
+zooLogLevel LogDebug    = (#const ZOO_LOG_LEVEL_DEBUG)
 
 bitOr True val res = val .|. res
 bitOr False _  res = res
