@@ -65,10 +65,7 @@ data ZooError =
   | ErrNothing                 String
   | ErrSessionMoved            String
   | ErrCode Int                String
-  deriving (Eq, Show)
-
-instance Typeable ZooError where
-  typeOf _ = undefined
+  deriving (Eq, Show, Typeable)
 
 instance Exception ZooError
 
@@ -155,7 +152,7 @@ foreign import ccall unsafe
 
 foreign import ccall unsafe
   "zookeeper_init.h &zookeeper_close" zookeeper_close_ptr ::
-  FunPtr (Ptr ZHBlob -> IO ()) -- FIXME: IO Int
+  FunPtr (Ptr ZHBlob -> IO Int)
 
 foreign import ccall unsafe
   "zookeeper.h zookeeper_close" zookeeper_close ::
@@ -385,9 +382,9 @@ init host watcher timeout =
     watcherPtr <- wrapWatcher watcher
     zh <- throwErrnoIfNull ("init: " ++ host) $
       zookeeper_init csHost watcherPtr timeout nullPtr nullPtr 0
-    newForeignPtr zookeeper_close_ptr zh)
+    newForeignPtr_ zh)
 
-close = finalizeForeignPtr
+close zh = checkError "close" $ withForeignPtr zh zookeeper_close
 
 recvTimeout zh = withForeignPtr zh zoo_recv_timeout
 

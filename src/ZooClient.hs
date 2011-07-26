@@ -9,9 +9,11 @@ main :: IO ()
 main = do
   (host_port:cmd:args) <- getArgs
   zh <- Zoo.init host_port nullWatcher 10000
-  catch (run zh cmd args) print
+  run zh cmd args
   -- Zoo.close zh
-  where nullWatcher _zh _zEventType _zState path = putStrLn path
+  where nullWatcher _zh zEventType zState path =
+          putStrLn ("watch: '" ++ path ++ "' :: "
+                    ++ show zEventType ++ " " ++ show zState)
 
 run :: Zoo.ZHandle -> String -> [String] -> IO ()
 

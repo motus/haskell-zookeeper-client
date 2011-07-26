@@ -14,6 +14,7 @@ Library
   Build-Depends:   base >= 4 && < 5
   Hs-source-dirs:  src
   Exposed-modules: Zookeeper
+  Extensions:      DeriveDataTypeable
 
 Executable ZooClient
   Ghc-Options:     -threaded -O2
@@ -22,3 +23,5 @@ Executable ZooClient
   Hs-source-dirs:  src
   Main-is:         ZooClient.hs
   Other-modules:   Zookeeper
+  Extensions:      DeriveDataTypeable
+
