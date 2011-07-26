@@ -36,7 +36,7 @@ data State = ExpiredSession | AuthFailed | Connecting |
              Associating | Connected deriving (Eq, Show)
 
 data EventType = Created | Deleted | Changed | Child |
-                 Session | NotWatching | Unknown Int deriving (Eq, Show)
+                 Session | NotWatching | Unknown Int32 deriving (Eq, Show)
 
 data Watch = Watch | NoWatch deriving (Eq, Show)
 
@@ -66,7 +66,7 @@ data ZooError =
   | ErrClosing                 String
   | ErrNothing                 String
   | ErrSessionMoved            String
-  | ErrCode Int                String
+  | ErrCode Int32              String
   deriving (Eq, Show, Typeable)
 
 instance Exception ZooError
@@ -104,7 +104,7 @@ data Stat = Stat {
   stat_pzxid          :: Word64
 } deriving (Show)
 
-type WatcherImpl = Ptr ZHBlob -> Int -> Int -> CString -> VoidPtr -> IO ()
+type WatcherImpl = Ptr ZHBlob -> Int32 -> Int32 -> CString -> VoidPtr -> IO ()
 type WatcherFunc = ZHandle -> EventType -> State -> String -> IO ()
 
 -- Exported interface:
@@ -116,23 +116,23 @@ setDebugLevel     :: LogLevel -> IO ()
 
 createAcl   :: String -> String -> Word32 -> Acl
 
-init        :: String -> WatcherFunc -> Int -> IO ZHandle
+init        :: String -> WatcherFunc -> Int32 -> IO ZHandle
 close       :: ZHandle -> IO ()
 
-recvTimeout :: ZHandle -> IO Int
+recvTimeout :: ZHandle -> IO Int32
 state       :: ZHandle -> IO State
 
 create      :: ZHandle -> String -> Maybe ByteString ->
                Acls -> CreateMode -> IO String
 
-delete      :: ZHandle -> String -> Int -> IO ()
+delete      :: ZHandle -> String -> Int32 -> IO ()
 exists      :: ZHandle -> String -> Watch -> IO (Maybe Stat)
 get         :: ZHandle -> String -> Watch -> IO (Maybe ByteString, Stat)
 getChildren :: ZHandle -> String -> Watch -> IO [String]
-set         :: ZHandle -> String -> Maybe ByteString -> Int -> IO ()
+set         :: ZHandle -> String -> Maybe ByteString -> Int32 -> IO ()
 
 getAcl      :: ZHandle -> String -> IO (Acls, Stat)
-setAcl      :: ZHandle -> String -> Int -> Acls -> IO ()
+setAcl      :: ZHandle -> String -> Int32 -> Acls -> IO ()
 
 -- C functions:
 
@@ -149,25 +149,25 @@ foreign import ccall "wrapper"
 
 foreign import ccall safe
   "zookeeper.h zookeeper_init" zookeeper_init ::
-  CString -> FunPtr WatcherImpl -> Int ->
-  VoidPtr -> VoidPtr -> Int -> IO (Ptr ZHBlob)
+  CString -> FunPtr WatcherImpl -> Int32 ->
+  VoidPtr -> VoidPtr -> Int32 -> IO (Ptr ZHBlob)
 
 foreign import ccall safe
   "zookeeper_init.h &zookeeper_close" zookeeper_close_ptr ::
-  FunPtr (Ptr ZHBlob -> IO ()) -- actually, -> IO Int
+  FunPtr (Ptr ZHBlob -> IO ()) -- actually, -> IO Int32
 
 foreign import ccall unsafe
   "zookeeper.h zoo_recv_timeout" zoo_recv_timeout ::
-  Ptr ZHBlob -> IO Int
+  Ptr ZHBlob -> IO Int32
 
 foreign import ccall unsafe
   "zookeeper.h zoo_state" zoo_state ::
-  Ptr ZHBlob -> IO Int
+  Ptr ZHBlob -> IO Int32
 
 foreign import ccall safe
   "zookeeper.h zoo_create" zoo_create ::
-  Ptr ZHBlob -> CString -> CString -> Int -> Ptr AclsBlob ->
-  Int -> CString -> Int -> IO Int
+  Ptr ZHBlob -> CString -> CString -> Int32 -> Ptr AclsBlob ->
+  Int32 -> CString -> Int32 -> IO Int32
 
 foreign import ccall safe "zookeeper.h &ZOO_OPEN_ACL_UNSAFE"
    zoo_open_acl_unsafe_ptr :: Ptr AclsBlob
@@ -180,40 +180,40 @@ foreign import ccall safe "zookeeper.h &ZOO_CREATOR_ALL_ACL"
 
 foreign import ccall safe
   "zookeeper.h zoo_delete" zoo_delete ::
-  Ptr ZHBlob -> CString -> Int -> IO Int
+  Ptr ZHBlob -> CString -> Int32 -> IO Int32
 
 foreign import ccall safe
   "zookeeper.h zoo_exists" zoo_exists ::
-  Ptr ZHBlob -> CString -> Int -> Ptr StatBlob -> IO Int
+  Ptr ZHBlob -> CString -> Int32 -> Ptr StatBlob -> IO Int32
 
 foreign import ccall safe
   "zookeeper.h zoo_get" zoo_get ::
-  Ptr ZHBlob -> CString -> Int -> CString ->
-  Ptr Int -> Ptr StatBlob -> IO Int
+  Ptr ZHBlob -> CString -> Int32 -> CString ->
+  Ptr Int32 -> Ptr StatBlob -> IO Int32
 
 foreign import ccall safe
   "zookeeper.h zoo_set" zoo_set ::
-  Ptr ZHBlob -> CString -> CString -> Int -> Int -> IO Int
+  Ptr ZHBlob -> CString -> CString -> Int32 -> Int32 -> IO Int32
 
 foreign import ccall safe
   "zookeeper.h zoo_get_children" zoo_get_children ::
-  Ptr ZHBlob -> CString -> Int -> VoidPtr -> IO Int
+  Ptr ZHBlob -> CString -> Int32 -> VoidPtr -> IO Int32
 
 foreign import ccall safe
   "zookeeper.h zoo_get_acl" zoo_get_acl ::
-  Ptr ZHBlob -> CString -> Ptr AclsBlob -> Ptr StatBlob -> IO Int
+  Ptr ZHBlob -> CString -> Ptr AclsBlob -> Ptr StatBlob -> IO Int32
 
 foreign import ccall safe
   "zookeeper.h zoo_set_acl" zoo_set_acl ::
-  Ptr ZHBlob -> CString -> Int -> Ptr AclsBlob -> IO Int
+  Ptr ZHBlob -> CString -> Int32 -> Ptr AclsBlob -> IO Int32
 
 foreign import ccall unsafe
   "zookeeper.h is_unrecoverable" is_unrecoverable ::
-  Ptr ZHBlob -> IO Int
+  Ptr ZHBlob -> IO Int32
 
 foreign import ccall unsafe
   "zookeeper.h zoo_set_debug_level" zoo_set_debug_level ::
-  Int -> IO ()
+  Int32 -> IO ()
 
 -- Internal functions:
 
@@ -223,12 +223,14 @@ wrapWatcher func =
     zh <- newForeignPtr_ zhBlob
     func zh (zooEvent zEventType) (zooState zState) path)
 
+zooState :: Int32 -> State
 zooState (#const ZOO_EXPIRED_SESSION_STATE) = ExpiredSession
 zooState (#const ZOO_AUTH_FAILED_STATE    ) = AuthFailed
 zooState (#const ZOO_CONNECTING_STATE     ) = Connecting
 zooState (#const ZOO_ASSOCIATING_STATE    ) = Associating
 zooState (#const ZOO_CONNECTED_STATE      ) = Connected
 
+zooEvent :: Int32 -> EventType
 zooEvent (#const ZOO_CREATED_EVENT    ) = Created
 zooEvent (#const ZOO_DELETED_EVENT    ) = Deleted
 zooEvent (#const ZOO_CHANGED_EVENT    ) = Changed
@@ -345,18 +347,25 @@ copyStringVec bufPtr = do
   vec <- (#peek struct String_vector, data ) bufPtr
   mapM (peekCString <=< peek . plusPtr vec . (* #size char*)) [0..len-1]
 
+-- withMaybeCStringLen :: Maybe ByteString -> (CStringLen -> IO a) -> IO a
 withMaybeCStringLen Nothing    func = func (nullPtr, -1)
-withMaybeCStringLen (Just str) func = B.useAsCStringLen str func
+withMaybeCStringLen (Just str) func = B.useAsCStringLen str $ \(cstr, len) ->
+                                      func (cstr, fromIntegral len)
 
+packMaybeCStringLen :: Ptr CChar -> Int32 -> IO (Maybe ByteString)
 packMaybeCStringLen buf len
   | len == maxBound || len < 0 = return Nothing
-  | otherwise = liftM Just $ B.packCStringLen (buf, len)
+  | otherwise = liftM Just $ B.packCStringLen (buf, fromIntegral len)
 
 watchFlag Watch   = 1
 watchFlag NoWatch = 0
 
-pathBufferSize   =  1024
-valueBufferSize  = 20480
+pathBufferSize :: Int32
+pathBufferSize = 1024
+
+valueBufferSize :: Int32
+valueBufferSize = 20480
+
 stringVectorSize =  1024
 aclsVectorSize   =    64
 
@@ -398,7 +407,7 @@ create zh path value acl flags =
     withCString path (\pathPtr ->
       withAclVector acl (\aclPtr ->
         withMaybeCStringLen value (\(valuePtr, valueLen) ->
-          allocaBytes pathBufferSize (\buf -> do
+          allocaBytes (fromIntegral pathBufferSize) (\buf -> do
             checkError ("create: " ++ path) $
               zoo_create zhPtr pathPtr valuePtr valueLen
                 aclPtr (createModeInt flags) buf pathBufferSize
@@ -424,7 +433,7 @@ get zh path watch =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
       alloca (\bufLen ->
-        allocaBytes valueBufferSize (\buf ->
+        allocaBytes (fromIntegral valueBufferSize) (\buf ->
           allocaBytes (#size struct Stat) (\statPtr -> do
             poke bufLen valueBufferSize
             checkError ("get: " ++ path) $
