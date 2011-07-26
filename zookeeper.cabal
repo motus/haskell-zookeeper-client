@@ -9,16 +9,16 @@ Build-Type:     Simple
 Cabal-Version:  >=1.8
 
 Library
-  Ghc-Options: -threaded -O2
+  Ghc-Options:     -threaded -O2
   Extra-Libraries: zookeeper_mt
-  Build-Depends: base >= 4 && < 5
-  Hs-source-dirs: src
+  Build-Depends:   base >= 4 && < 5
+  Hs-source-dirs:  src
   Exposed-modules: Zookeeper
 
 Executable ZooClient
-  Ghc-Options: -threaded -O2
+  Ghc-Options:     -threaded -O2
   Extra-Libraries: zookeeper_mt
-  Build-Depends: base >= 4 && < 5
-  Hs-source-dirs: src
-  Main-is: ZooClient.hs
-  Other-modules: Zookeeper
+  Build-Depends:   base >= 4 && < 5
+  Hs-source-dirs:  src
+  Main-is:         ZooClient.hs
+  Other-modules:   Zookeeper

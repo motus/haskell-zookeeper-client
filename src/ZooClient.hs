@@ -9,7 +9,7 @@ main :: IO ()
 main = do
   (host_port:cmd:args) <- getArgs
   zh <- Zoo.init host_port nullWatcher 10000
-  run zh cmd args
+  catch (run zh cmd args) print
   -- Zoo.close zh
   where nullWatcher _zh _zEventType _zState path = putStrLn path
 

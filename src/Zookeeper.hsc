@@ -7,7 +7,7 @@ module Zookeeper (
   create, delete, exists, get, getChildren, set,
   getAcl, setAcl,
   defaultCreateMode, createAcl,
-  WatcherFunc, State(..), Watch(..), LogLevel(..),
+  WatcherFunc, State(..), Watch(..), LogLevel(..), ZooError(..),
   EventType(..), CreateMode(..), Acl(..), Acls(..), Stat(..),
   ZHandle(..)) where
 
@@ -15,7 +15,10 @@ import Prelude hiding (init)
 
 import Data.Bits
 import Data.Word
+import Data.Typeable
+
 import Control.Monad
+import Control.Exception
 
 import Foreign
 import Foreign.C.Types
@@ -37,6 +40,37 @@ data Watch = Watch | NoWatch deriving (Eq, Show)
 
 data LogLevel = LogDisabled | LogError | LogWarn | LogInfo | LogDebug
                 deriving (Eq, Ord, Show)
+
+data ZooError =
+    ErrOk
+  | ErrRuntimeInconsistency    String
+  | ErrDataInconsistency       String
+  | ErrConnectionLoss          String
+  | ErrMarshallingError        String
+  | ErrUnimplemented           String
+  | ErrOperationTimeout        String
+  | ErrBadArguments            String
+  | ErrInvalidState            String
+  | ErrNoNode                  String
+  | ErrNoAuth                  String
+  | ErrBadVersion              String
+  | ErrNoChildrenForEphemerals String
+  | ErrNodeExists              String
+  | ErrNotEmpty                String
+  | ErrSessionExpired          String
+  | ErrInvalidCallback         String
+  | ErrInvalidAcl              String
+  | ErrAuthFailed              String
+  | ErrClosing                 String
+  | ErrNothing                 String
+  | ErrSessionMoved            String
+  | ErrCode Int                String
+  deriving (Eq, Show)
+
+instance Typeable ZooError where
+  typeOf _ = undefined
+
+instance Exception ZooError
 
 data CreateMode = CreateMode {
   create_ephemeral :: Bool,
@@ -206,7 +240,40 @@ zooEvent (#const ZOO_CHANGED_EVENT    ) = Changed
 zooEvent (#const ZOO_CHILD_EVENT      ) = Child
 zooEvent (#const ZOO_SESSION_EVENT    ) = Session
 zooEvent (#const ZOO_NOTWATCHING_EVENT) = NotWatching
-zooEvent x = Unknown x
+zooEvent code                           = Unknown code
+
+zooError _ (#const ZOK                     ) = return ()
+zooError s (#const ZRUNTIMEINCONSISTENCY   ) = throw $ ErrRuntimeInconsistency    s
+zooError s (#const ZDATAINCONSISTENCY      ) = throw $ ErrDataInconsistency       s
+zooError s (#const ZCONNECTIONLOSS         ) = throw $ ErrConnectionLoss          s
+zooError s (#const ZMARSHALLINGERROR       ) = throw $ ErrMarshallingError        s
+zooError s (#const ZUNIMPLEMENTED          ) = throw $ ErrUnimplemented           s
+zooError s (#const ZOPERATIONTIMEOUT       ) = throw $ ErrOperationTimeout        s
+zooError s (#const ZBADARGUMENTS           ) = throw $ ErrBadArguments            s
+zooError s (#const ZINVALIDSTATE           ) = throw $ ErrInvalidState            s
+zooError s (#const ZNONODE                 ) = throw $ ErrNoNode                  s
+zooError s (#const ZNOAUTH                 ) = throw $ ErrNoAuth                  s
+zooError s (#const ZBADVERSION             ) = throw $ ErrBadVersion              s
+zooError s (#const ZNOCHILDRENFOREPHEMERALS) = throw $ ErrNoChildrenForEphemerals s
+zooError s (#const ZNODEEXISTS             ) = throw $ ErrNodeExists              s
+zooError s (#const ZNOTEMPTY               ) = throw $ ErrNotEmpty                s
+zooError s (#const ZSESSIONEXPIRED         ) = throw $ ErrSessionExpired          s
+zooError s (#const ZINVALIDCALLBACK        ) = throw $ ErrInvalidCallback         s
+zooError s (#const ZINVALIDACL             ) = throw $ ErrInvalidAcl              s
+zooError s (#const ZAUTHFAILED             ) = throw $ ErrAuthFailed              s
+zooError s (#const ZCLOSING                ) = throw $ ErrClosing                 s
+zooError s (#const ZNOTHING                ) = throw $ ErrNothing                 s
+zooError s (#const ZSESSIONMOVED           ) = throw $ ErrSessionMoved            s
+
+zooError s errno | errno > 0 = throwErrno s
+                 | otherwise = throw $ ErrCode errno s
+
+checkError msg io = io >>= zooError msg
+
+checkErrorIs code msg io = io >>= check msg
+  where check _ (#const ZOK) = return False
+        check msg err | err == code = return True
+                      | otherwise   = zooError msg err >> return True
 
 zooLogLevel LogDisabled = 0
 zooLogLevel LogError    = (#const ZOO_LOG_LEVEL_ERROR)
@@ -286,6 +353,10 @@ copyStringVec bufPtr = do
 withMaybeCStringLen Nothing    func = func (nullPtr, -1)
 withMaybeCStringLen (Just str) func = withCStringLen str func
 
+peekMaybeCStringLen buf len
+  | len == maxBound || len < 0 = return Nothing
+  | otherwise = liftM Just $ peekCStringLen (buf, len)
+
 watchFlag Watch   = 1
 watchFlag NoWatch = 0
 
@@ -322,8 +393,7 @@ recvTimeout zh = withForeignPtr zh zoo_recv_timeout
 
 state zh = liftM zooState $ withForeignPtr zh zoo_state
 
-isUnrecoverable zh = liftM (/= #const ZOK) $ throwErrnoIf
-  (not . flip elem [(#const ZINVALIDSTATE), (#const ZOK)])
+isUnrecoverable zh = checkErrorIs (#const ZINVALIDSTATE)
   "is_unrecoverable" (withForeignPtr zh is_unrecoverable)
 
 setDebugLevel = zoo_set_debug_level . zooLogLevel
@@ -334,13 +404,13 @@ create zh path value acl flags =
       withAclVector acl (\aclPtr ->
         withMaybeCStringLen value (\(valuePtr, valueLen) ->
           allocaBytes pathBufferSize (\buf -> do
-            throwErrnoIf_ (/=0) ("create: " ++ path) $
+            checkError ("create: " ++ path) $
               zoo_create zhPtr pathPtr valuePtr valueLen
                 aclPtr (createModeInt flags) buf pathBufferSize
             peekCString buf)))))
 
 delete zh path version =
-  throwErrnoIf_ (/=0) ("delete: " ++ path) $
+  checkError ("delete: " ++ path) $
     withForeignPtr zh (\zhPtr ->
       withCString path (\pathPtr ->
         zoo_delete zhPtr pathPtr version))
@@ -349,13 +419,11 @@ exists zh path watch =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
       allocaBytes (#size struct Stat) (\statPtr -> do
-        err <- throwErrnoIf
-                 (not . flip elem [(#const ZNONODE), (#const ZOK)])
-                 ("exists: " ++ path) $
+        err <- checkErrorIs (#const ZNONODE) ("exists: " ++ path) $
                  zoo_exists zhPtr pathPtr (watchFlag watch) statPtr
         getStat err statPtr)))
-  where getStat (#const ZOK) ptr = liftM Just $ copyStat ptr
-        getStat _ _ = return Nothing
+  where getStat False ptr = liftM Just $ copyStat ptr
+        getStat _ _       = return Nothing
 
 get zh path watch =
   withForeignPtr zh (\zhPtr ->
@@ -364,16 +432,11 @@ get zh path watch =
         allocaBytes valueBufferSize (\buf ->
           allocaBytes (#size struct Stat) (\statPtr -> do
             poke bufLen valueBufferSize
-            throwErrnoIf_ (/=0) ("get: " ++ path) $
+            checkError ("get: " ++ path) $
               zoo_get zhPtr pathPtr (watchFlag watch) buf bufLen statPtr
-            resultLen <- peek bufLen
             stat <- copyStat statPtr
-            if resultLen == 4294967295
-              then
-                return (Nothing, stat)
-              else do
-                bufStr <- peekCStringLen (buf, resultLen)
-                return (Just bufStr, stat))))))
+            maybeBuf <- peek bufLen >>= peekMaybeCStringLen buf
+            return (maybeBuf, stat))))))
 
 getChildren zh path watch =
   withForeignPtr zh (\zhPtr ->
@@ -382,7 +445,7 @@ getChildren zh path watch =
         allocaBytes (stringVectorSize * (#size char*)) (\stringsPtr -> do
           (#poke struct String_vector, count) vecPtr stringVectorSize
           (#poke struct String_vector, data ) vecPtr stringsPtr
-          throwErrnoIf_ (/=0) ("get_children: " ++ path) $
+          checkError ("get_children: " ++ path) $
             zoo_get_children zhPtr pathPtr (watchFlag watch) vecPtr
           copyStringVec vecPtr))))
 
@@ -390,7 +453,7 @@ set zh path value version =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
       withMaybeCStringLen value (\(valuePtr, valueLen) ->
-        throwErrnoIf_ (/=0) ("set: " ++ path) $
+        checkError ("set: " ++ path) $
           zoo_set zhPtr pathPtr valuePtr valueLen version)))
 
 getAcl zh path =
@@ -401,7 +464,7 @@ getAcl zh path =
           allocaBytes (#size struct Stat) (\statPtr -> do
             (#poke struct ACL_vector, count) aclsPtr aclsVectorSize
             (#poke struct ACL_vector, data ) aclsPtr aclsData
-            throwErrnoIf_ (/=0) ("get_acl: " ++ path) $
+            checkError ("get_acl: " ++ path) $
               zoo_get_acl zhPtr pathPtr aclsPtr statPtr
             acls <- copyAclVec aclsPtr
             stat <- copyStat statPtr
@@ -411,6 +474,5 @@ setAcl zh path version acls =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
       withAclVector acls (\aclsPtr ->
-        throwErrnoIf_ (/=0) ("set_acl: " ++ path) $
+        checkError ("set_acl: " ++ path) $
           zoo_set_acl zhPtr pathPtr version aclsPtr)))
-
