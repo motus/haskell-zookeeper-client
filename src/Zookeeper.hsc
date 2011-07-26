@@ -152,11 +152,7 @@ foreign import ccall safe
 
 foreign import ccall safe
   "zookeeper_init.h &zookeeper_close" zookeeper_close_ptr ::
-  FunPtr (Ptr ZHBlob -> IO Int)
-
-foreign import ccall safe
-  "zookeeper.h zookeeper_close" zookeeper_close ::
-  Ptr ZHBlob -> IO Int
+  FunPtr (Ptr ZHBlob -> IO ()) -- actually, -> IO Int
 
 foreign import ccall unsafe
   "zookeeper.h zoo_recv_timeout" zoo_recv_timeout ::
@@ -382,9 +378,9 @@ init host watcher timeout =
     watcherPtr <- wrapWatcher watcher
     zh <- throwErrnoIfNull ("init: " ++ host) $
       zookeeper_init csHost watcherPtr timeout nullPtr nullPtr 0
-    newForeignPtr_ zh)
+    newForeignPtr zookeeper_close_ptr zh)
 
-close zh = checkError "close" $ withForeignPtr zh zookeeper_close
+close = finalizeForeignPtr
 
 recvTimeout zh = withForeignPtr zh zoo_recv_timeout
 
