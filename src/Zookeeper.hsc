@@ -145,16 +145,16 @@ data StatBlob = StatBlob
 foreign import ccall "wrapper"
   wrapWatcherImpl :: WatcherImpl -> IO (FunPtr WatcherImpl)
 
-foreign import ccall unsafe
+foreign import ccall safe
   "zookeeper.h zookeeper_init" zookeeper_init ::
   CString -> FunPtr WatcherImpl -> Int ->
   VoidPtr -> VoidPtr -> Int -> IO (Ptr ZHBlob)
 
-foreign import ccall unsafe
+foreign import ccall safe
   "zookeeper_init.h &zookeeper_close" zookeeper_close_ptr ::
   FunPtr (Ptr ZHBlob -> IO Int)
 
-foreign import ccall unsafe
+foreign import ccall safe
   "zookeeper.h zookeeper_close" zookeeper_close ::
   Ptr ZHBlob -> IO Int
 
@@ -166,7 +166,7 @@ foreign import ccall unsafe
   "zookeeper.h zoo_state" zoo_state ::
   Ptr ZHBlob -> IO Int
 
-foreign import ccall unsafe
+foreign import ccall safe
   "zookeeper.h zoo_create" zoo_create ::
   Ptr ZHBlob -> CString -> CString -> Int -> Ptr AclsBlob ->
   Int -> CString -> Int -> IO Int
@@ -180,32 +180,32 @@ foreign import ccall safe "zookeeper.h &ZOO_READ_ACL_UNSAFE"
 foreign import ccall safe "zookeeper.h &ZOO_CREATOR_ALL_ACL"
    zoo_creator_all_ptr :: Ptr AclsBlob
 
-foreign import ccall unsafe
+foreign import ccall safe
   "zookeeper.h zoo_delete" zoo_delete ::
   Ptr ZHBlob -> CString -> Int -> IO Int
 
-foreign import ccall unsafe
+foreign import ccall safe
   "zookeeper.h zoo_exists" zoo_exists ::
   Ptr ZHBlob -> CString -> Int -> Ptr StatBlob -> IO Int
 
-foreign import ccall unsafe
+foreign import ccall safe
   "zookeeper.h zoo_get" zoo_get ::
   Ptr ZHBlob -> CString -> Int -> CString ->
   Ptr Int -> Ptr StatBlob -> IO Int
 
-foreign import ccall unsafe
+foreign import ccall safe
   "zookeeper.h zoo_set" zoo_set ::
   Ptr ZHBlob -> CString -> CString -> Int -> Int -> IO Int
 
-foreign import ccall unsafe
+foreign import ccall safe
   "zookeeper.h zoo_get_children" zoo_get_children ::
   Ptr ZHBlob -> CString -> Int -> VoidPtr -> IO Int
 
-foreign import ccall unsafe
+foreign import ccall safe
   "zookeeper.h zoo_get_acl" zoo_get_acl ::
   Ptr ZHBlob -> CString -> Ptr AclsBlob -> Ptr StatBlob -> IO Int
 
-foreign import ccall unsafe
+foreign import ccall safe
   "zookeeper.h zoo_set_acl" zoo_set_acl ::
   Ptr ZHBlob -> CString -> Int -> Ptr AclsBlob -> IO Int
 
