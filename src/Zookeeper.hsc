@@ -15,6 +15,8 @@ import Prelude hiding (init)
 
 import Data.Bits
 import Data.Word
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as B
 import Data.Typeable
 
 import Control.Monad
@@ -120,14 +122,14 @@ close       :: ZHandle -> IO ()
 recvTimeout :: ZHandle -> IO Int
 state       :: ZHandle -> IO State
 
-create      :: ZHandle -> String -> Maybe String ->
+create      :: ZHandle -> String -> Maybe ByteString ->
                Acls -> CreateMode -> IO String
 
 delete      :: ZHandle -> String -> Int -> IO ()
 exists      :: ZHandle -> String -> Watch -> IO (Maybe Stat)
-get         :: ZHandle -> String -> Watch -> IO (Maybe String, Stat)
+get         :: ZHandle -> String -> Watch -> IO (Maybe ByteString, Stat)
 getChildren :: ZHandle -> String -> Watch -> IO [String]
-set         :: ZHandle -> String -> Maybe String -> Int -> IO ()
+set         :: ZHandle -> String -> Maybe ByteString -> Int -> IO ()
 
 getAcl      :: ZHandle -> String -> IO (Acls, Stat)
 setAcl      :: ZHandle -> String -> Int -> Acls -> IO ()
@@ -344,11 +346,11 @@ copyStringVec bufPtr = do
   mapM (peekCString <=< peek . plusPtr vec . (* #size char*)) [0..len-1]
 
 withMaybeCStringLen Nothing    func = func (nullPtr, -1)
-withMaybeCStringLen (Just str) func = withCStringLen str func
+withMaybeCStringLen (Just str) func = B.useAsCStringLen str func
 
-peekMaybeCStringLen buf len
+packMaybeCStringLen buf len
   | len == maxBound || len < 0 = return Nothing
-  | otherwise = liftM Just $ peekCStringLen (buf, len)
+  | otherwise = liftM Just $ B.packCStringLen (buf, len)
 
 watchFlag Watch   = 1
 watchFlag NoWatch = 0
@@ -428,7 +430,7 @@ get zh path watch =
             checkError ("get: " ++ path) $
               zoo_get zhPtr pathPtr (watchFlag watch) buf bufLen statPtr
             stat <- copyStat statPtr
-            maybeBuf <- peek bufLen >>= peekMaybeCStringLen buf
+            maybeBuf <- peek bufLen >>= packMaybeCStringLen buf
             return (maybeBuf, stat))))))
 
 getChildren zh path watch =
