@@ -1,5 +1,7 @@
 
 {-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Zookeeper (
   init, close,
@@ -9,7 +11,7 @@ module Zookeeper (
   defaultCreateMode, createAcl,
   WatcherFunc, State(..), Watch(..), LogLevel(..), ZooError(..),
   EventType(..), CreateMode(..), Acl(..), Acls(..), Stat(..),
-  ZHandle(..)) where
+  ZHandle) where
 
 import Prelude hiding (init)
 
@@ -217,6 +219,8 @@ foreign import ccall unsafe
 
 -- Internal functions:
 
+wrapWatcher :: (ForeignPtr ZHBlob -> EventType -> State -> String -> IO ()) ->
+               IO (FunPtr WatcherImpl)
 wrapWatcher func =
   wrapWatcherImpl (\zhBlob zEventType zState csPath _ -> do
     path <- peekCString csPath
@@ -239,6 +243,7 @@ zooEvent (#const ZOO_SESSION_EVENT    ) = Session
 zooEvent (#const ZOO_NOTWATCHING_EVENT) = NotWatching
 zooEvent code                           = Unknown code
 
+zooError :: String -> Int32 -> IO ()
 zooError _ (#const ZOK                     ) = return ()
 zooError s (#const ZRUNTIMEINCONSISTENCY   ) = throw $ ErrRuntimeInconsistency    s
 zooError s (#const ZDATAINCONSISTENCY      ) = throw $ ErrDataInconsistency       s
@@ -265,36 +270,41 @@ zooError s (#const ZSESSIONMOVED           ) = throw $ ErrSessionMoved          
 zooError s errno | errno > 0 = throwErrno s
                  | otherwise = throw $ ErrCode errno s
 
+checkError :: String -> IO Int32 -> IO ()
 checkError msg io = io >>= zooError msg
 
-checkErrorIs code msg io = io >>= check msg
-  where check _ (#const ZOK) = return False
-        check msg err | err == code = return True
-                      | otherwise   = zooError msg err >> return True
+checkErrorIs :: Int32 -> String -> IO Int32 -> IO Bool
+checkErrorIs code msg io = io >>= check
+  where check (#const ZOK) = return False
+        check err | err == code = return True
+                  | otherwise   = zooError msg err >> return True
 
+zooLogLevel :: LogLevel -> Int32
 zooLogLevel LogDisabled = 0
 zooLogLevel LogError    = (#const ZOO_LOG_LEVEL_ERROR)
 zooLogLevel LogWarn     = (#const ZOO_LOG_LEVEL_WARN )
 zooLogLevel LogInfo     = (#const ZOO_LOG_LEVEL_INFO )
 zooLogLevel LogDebug    = (#const ZOO_LOG_LEVEL_DEBUG)
 
+bitOr :: Bits a => Bool -> a -> a -> a
 bitOr True val res = val .|. res
 bitOr False _  res = res
 
-createModeInt (CreateMode create_ephemeral create_sequence) =
-  bitOr create_ephemeral (#const ZOO_EPHEMERAL) $
-  bitOr create_sequence  (#const ZOO_SEQUENCE ) 0
+createModeInt :: Bits a => CreateMode -> a
+createModeInt mode =
+  bitOr (create_ephemeral mode) (#const ZOO_EPHEMERAL) $
+  bitOr (create_sequence mode) (#const ZOO_SEQUENCE ) 0
 
 aclPermsInt :: Acl -> Word32
-aclPermsInt (Acl acl_scheme acl_id acl_read acl_write
-             acl_create acl_delete acl_admin acl_all) =
-  bitOr acl_read   (#const ZOO_PERM_READ  ) $
+aclPermsInt Acl{..} =
+  bitOr acl_read  (#const ZOO_PERM_READ  ) $
   bitOr acl_write  (#const ZOO_PERM_WRITE ) $
   bitOr acl_create (#const ZOO_PERM_CREATE) $
   bitOr acl_delete (#const ZOO_PERM_DELETE) $
-  bitOr acl_admin  (#const ZOO_PERM_ADMIN ) $
-  bitOr acl_all    (#const ZOO_PERM_ALL   ) 0
+  bitOr acl_admin (#const ZOO_PERM_ADMIN ) $
+  bitOr acl_all   (#const ZOO_PERM_ALL   ) 0
 
+withAclVector :: Acls -> (Ptr AclsBlob -> IO b) -> IO b
 withAclVector OpenAclUnsafe func = func zoo_open_acl_unsafe_ptr
 withAclVector ReadAclUnsafe func = func zoo_read_acl_unsafe_ptr
 withAclVector CreatorAllAcl func = func zoo_creator_all_ptr
@@ -303,29 +313,32 @@ withAclVector (AclList acls) func =
   allocaBytes (#size struct ACL_vector) (\avPtr -> do
     (#poke struct ACL_vector, count) avPtr len
     allocaBytes (len * (#size struct ACL)) (\aclPtr ->
-      writeAcls acls aclPtr aclPtr func))
+      writeAcls acls aclPtr aclPtr))
   where len = length acls
-        writeAcls [] base _ func = func base
-        writeAcls (acl:rest) base ptr func =
+        writeAcls [] base _ = func base
+        writeAcls (acl:rest) base ptr =
           withCString (acl_scheme acl) (\schemePtr ->
             withCString (acl_id acl) (\idPtr -> do
               (#poke struct ACL, perms    ) ptr (aclPermsInt acl)
               (#poke struct ACL, id.scheme) ptr schemePtr
               (#poke struct ACL, id.id    ) ptr idPtr
-              writeAcls rest base (plusPtr ptr (#size struct ACL)) func))
+              writeAcls rest base (plusPtr ptr (#size struct ACL))))
 
+copyAclVec :: Ptr b -> IO Acls
 copyAclVec avPtr = do
   len  <- (#peek struct ACL_vector, count) avPtr
   vec  <- (#peek struct ACL_vector, data ) avPtr
   acls <- mapM (copyAcl . plusPtr vec . (* #size struct ACL)) [0..len-1]
   return $ AclList acls
 
+copyAcl :: Ptr b -> IO Acl
 copyAcl ptr = do
   perms  <- (#peek struct ACL, perms    ) ptr
   scheme <- (#peek struct ACL, id.scheme) ptr >>= peekCString
   idStr  <- (#peek struct ACL, id.id    ) ptr >>= peekCString
   return $ createAcl scheme idStr perms
 
+copyStat :: Ptr b -> IO Stat
 copyStat stat = do
   stat_czxid          <- (#peek struct Stat, czxid         ) stat
   stat_mzxid          <- (#peek struct Stat, mzxid         ) stat
@@ -338,25 +351,27 @@ copyStat stat = do
   stat_dataLength     <- (#peek struct Stat, dataLength    ) stat
   stat_numChildren    <- (#peek struct Stat, numChildren   ) stat
   stat_pzxid          <- (#peek struct Stat, pzxid         ) stat
-  return (Stat stat_czxid stat_mzxid stat_ctime stat_mtime
-    stat_version stat_cversion stat_aversion
-    stat_ephemeralOwner stat_dataLength stat_numChildren stat_pzxid)
+  return $ Stat { stat_czxid, stat_mzxid, stat_ctime, stat_mtime,
+                  stat_version, stat_cversion, stat_aversion,
+                  stat_ephemeralOwner, stat_dataLength,
+                  stat_numChildren, stat_pzxid }
 
+copyStringVec :: Ptr b -> IO [String]
 copyStringVec bufPtr = do
   len <- (#peek struct String_vector, count) bufPtr
   vec <- (#peek struct String_vector, data ) bufPtr
   mapM (peekCString <=< peek . plusPtr vec . (* #size char*)) [0..len-1]
 
--- withMaybeCStringLen :: Maybe ByteString -> (CStringLen -> IO a) -> IO a
+withMaybeCStringLen :: Maybe ByteString -> (CStringLen -> IO a) -> IO a
 withMaybeCStringLen Nothing    func = func (nullPtr, -1)
-withMaybeCStringLen (Just str) func = B.useAsCStringLen str $ \(cstr, len) ->
-                                      func (cstr, fromIntegral len)
+withMaybeCStringLen (Just str) func = B.useAsCStringLen str func
 
 packMaybeCStringLen :: Ptr CChar -> Int32 -> IO (Maybe ByteString)
 packMaybeCStringLen buf len
   | len == maxBound || len < 0 = return Nothing
   | otherwise = liftM Just $ B.packCStringLen (buf, fromIntegral len)
 
+watchFlag :: Watch -> Int32
 watchFlag Watch   = 1
 watchFlag NoWatch = 0
 
@@ -366,12 +381,17 @@ pathBufferSize = 1024
 valueBufferSize :: Int32
 valueBufferSize = 20480
 
+stringVectorSize :: Int
 stringVectorSize =  1024
-aclsVectorSize   =    64
+
+aclsVectorSize :: Int
+aclsVectorSize = 64
 
 -- Implementation of exported functions:
 
-defaultCreateMode = CreateMode True False
+defaultCreateMode = CreateMode { create_ephemeral = True
+                               , create_sequence  = False
+                               }
 
 createAcl aclScheme aclId flags = Acl {
   acl_scheme = aclScheme,
@@ -409,7 +429,7 @@ create zh path value acl flags =
         withMaybeCStringLen value (\(valuePtr, valueLen) ->
           allocaBytes (fromIntegral pathBufferSize) (\buf -> do
             checkError ("create: " ++ path) $
-              zoo_create zhPtr pathPtr valuePtr valueLen
+              zoo_create zhPtr pathPtr valuePtr (fromIntegral valueLen)
                 aclPtr (createModeInt flags) buf pathBufferSize
             peekCString buf)))))
 
@@ -458,7 +478,7 @@ set zh path value version =
     withCString path (\pathPtr ->
       withMaybeCStringLen value (\(valuePtr, valueLen) ->
         checkError ("set: " ++ path) $
-          zoo_set zhPtr pathPtr valuePtr valueLen version)))
+          zoo_set zhPtr pathPtr valuePtr (fromIntegral valueLen) version)))
 
 getAcl zh path =
   withForeignPtr zh (\zhPtr ->
