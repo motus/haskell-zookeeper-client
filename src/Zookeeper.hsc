@@ -4,7 +4,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Zookeeper (
-  init, close,
+  init, close, setWatcher,
   recvTimeout, state, isUnrecoverable, setDebugLevel,
   create, delete, exists, get, getChildren, set,
   getAcl, setAcl,
@@ -134,6 +134,8 @@ createAcl   :: String -> String -> Word32 -> Acl
 init        :: String -> WatcherFunc -> Int32 -> IO ZHandle
 close       :: ZHandle -> IO ()
 
+setWatcher  :: ZHandle -> WatcherFunc -> IO ()
+
 recvTimeout :: ZHandle -> IO Int32
 state       :: ZHandle -> IO State
 
@@ -176,6 +178,10 @@ foreign import ccall unsafe
 foreign import ccall unsafe
   "zookeeper.h zoo_state" zoo_state ::
   ZHPtr -> IO Int32
+
+foreign import ccall safe
+  "zookeeper.h zoo_set_watcher" zoo_set_watcher ::
+  ZHPtr -> FunPtr WatcherImpl -> IO () -- actually, IO (FunPtr WatcherImpl)
 
 foreign import ccall safe
   "zookeeper.h zoo_create" zoo_create ::
@@ -231,13 +237,13 @@ foreign import ccall unsafe
 -- Internal functions:
 
 wrapWatcher ::
-  (ZHandle -> EventType -> State -> String -> IO ()) ->
+  ZHandle -> (ZHandle -> EventType -> State -> String -> IO ()) ->
   IO (FunPtr WatcherImpl)
 
-wrapWatcher func =
-  wrapWatcherImpl (\zhBlob zEventType zState csPath _ -> do
+wrapWatcher zh func =
+  wrapWatcherImpl (\_zhBlob zEventType zState csPath _ctx -> do
     path <- peekCString csPath
-    zh <- newForeignPtr_ zhBlob
+    -- zh <- newForeignPtr_ zhBlob
     func zh (zooEvent zEventType) (zooState zState) path)
 
 zooState :: Int32 -> State
@@ -418,12 +424,17 @@ createAcl aclScheme aclId flags = Acl {
   acl_all    = flags .&. (#const ZOO_PERM_ALL   ) /= 0
 }
 
-init host watcher timeout =
-  withCString host (\csHost -> do
-    watcherPtr <- wrapWatcher watcher
-    zh <- throwErrnoIfNull ("init: " ++ host) $
-      zookeeper_init csHost watcherPtr timeout nullPtr nullPtr 0
-    newForeignPtr zookeeper_close_ptr zh)
+init host watcher timeout = do
+  zh <- withCString host (\csHost -> do
+          zhPtr <- throwErrnoIfNull ("init: " ++ host) $
+            zookeeper_init csHost nullFunPtr timeout nullPtr nullPtr 0
+          newForeignPtr zookeeper_close_ptr zhPtr)
+  setWatcher zh watcher
+  return zh
+
+setWatcher zh watcher = do
+  watcherPtr <- wrapWatcher zh watcher
+  withForeignPtr zh (\zhPtr -> zoo_set_watcher zhPtr watcherPtr)
 
 close = finalizeForeignPtr
 
