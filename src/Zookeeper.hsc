@@ -131,10 +131,10 @@ setDebugLevel     :: LogLevel -> IO ()
 
 createAcl   :: String -> String -> Word32 -> Acl
 
-init        :: String -> WatcherFunc -> Int32 -> IO ZHandle
+init        :: String -> Maybe WatcherFunc -> Int32 -> IO ZHandle
 close       :: ZHandle -> IO ()
 
-setWatcher  :: ZHandle -> WatcherFunc -> IO ()
+setWatcher  :: ZHandle -> Maybe WatcherFunc -> IO ()
 
 recvTimeout :: ZHandle -> IO Int32
 state       :: ZHandle -> IO State
@@ -432,7 +432,10 @@ init host watcher timeout = do
   setWatcher zh watcher
   return zh
 
-setWatcher zh watcher = do
+setWatcher zh Nothing =
+  withForeignPtr zh (\zhPtr -> zoo_set_watcher zhPtr nullFunPtr)
+
+setWatcher zh (Just watcher) = do
   watcherPtr <- wrapWatcher zh watcher
   withForeignPtr zh (\zhPtr -> zoo_set_watcher zhPtr watcherPtr)
 

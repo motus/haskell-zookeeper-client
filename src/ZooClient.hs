@@ -10,9 +10,9 @@ main :: IO ()
 
 main = do
   (host_port:cmd:args) <- getArgs
-  zh <- Zoo.init host_port nullWatcher 10000
+  zh <- Zoo.init host_port (Just watcher) 10000
   run zh cmd args
-  where nullWatcher _zh zEventType zState path =
+  where watcher _zh zEventType zState path =
           putStrLn ("watch: '" ++ path ++ "' :: "
                     ++ show zEventType ++ " " ++ show zState)
 
