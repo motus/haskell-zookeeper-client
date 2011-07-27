@@ -11,7 +11,7 @@ module Zookeeper (
   defaultCreateMode, createAcl,
   WatcherFunc, State(..), Watch(..), LogLevel(..), ZooError(..),
   EventType(..), CreateMode(..), Acl(..), Acls(..), Stat(..),
-  ZHandle) where
+  ZHandle, CBlob(..)) where
 
 import Prelude hiding (init)
 
@@ -31,45 +31,58 @@ import Foreign.C.String
 
 -- Exported data types:
 
-data ZHBlob  = ZHBlob
-type ZHandle = ForeignPtr ZHBlob
+data CBlob = CBlob
 
-data State = ExpiredSession | AuthFailed | Connecting |
-             Associating | Connected deriving (Eq, Show)
+type ZHPtr   = Ptr CBlob
+type ZHandle = ForeignPtr CBlob
 
-data EventType = Created | Deleted | Changed | Child |
-                 Session | NotWatching | Unknown Int32 deriving (Eq, Show)
+data State = ExpiredSession
+           | AuthFailed
+           | Connecting
+           | Associating
+           | Connected
+           | State Int32 deriving (Eq, Show)
+
+data EventType = Created
+               | Deleted
+               | Changed
+               | Child
+               | Session
+               | NotWatching
+               | Event Int32 deriving (Eq, Show)
 
 data Watch = Watch | NoWatch deriving (Eq, Show)
 
-data LogLevel = LogDisabled | LogError | LogWarn | LogInfo | LogDebug
-                deriving (Eq, Ord, Show)
+data LogLevel = LogDisabled
+              | LogError
+              | LogWarn
+              | LogInfo
+              | LogDebug deriving (Eq, Ord, Show)
 
-data ZooError =
-    ErrOk
-  | ErrRuntimeInconsistency    String
-  | ErrDataInconsistency       String
-  | ErrConnectionLoss          String
-  | ErrMarshallingError        String
-  | ErrUnimplemented           String
-  | ErrOperationTimeout        String
-  | ErrBadArguments            String
-  | ErrInvalidState            String
-  | ErrNoNode                  String
-  | ErrNoAuth                  String
-  | ErrBadVersion              String
-  | ErrNoChildrenForEphemerals String
-  | ErrNodeExists              String
-  | ErrNotEmpty                String
-  | ErrSessionExpired          String
-  | ErrInvalidCallback         String
-  | ErrInvalidAcl              String
-  | ErrAuthFailed              String
-  | ErrClosing                 String
-  | ErrNothing                 String
-  | ErrSessionMoved            String
-  | ErrCode Int32              String
-  deriving (Eq, Show, Typeable)
+data ZooError = ErrOk
+              | ErrRuntimeInconsistency    String
+              | ErrDataInconsistency       String
+              | ErrConnectionLoss          String
+              | ErrMarshallingError        String
+              | ErrUnimplemented           String
+              | ErrOperationTimeout        String
+              | ErrBadArguments            String
+              | ErrInvalidState            String
+              | ErrNoNode                  String
+              | ErrNoAuth                  String
+              | ErrBadVersion              String
+              | ErrNoChildrenForEphemerals String
+              | ErrNodeExists              String
+              | ErrNotEmpty                String
+              | ErrSessionExpired          String
+              | ErrInvalidCallback         String
+              | ErrInvalidAcl              String
+              | ErrAuthFailed              String
+              | ErrClosing                 String
+              | ErrNothing                 String
+              | ErrSessionMoved            String
+              | ErrCode Int32              String
+              deriving (Eq, Show, Typeable)
 
 instance Exception ZooError
 
@@ -106,7 +119,7 @@ data Stat = Stat {
   stat_pzxid          :: Word64
 } deriving (Show)
 
-type WatcherImpl = Ptr ZHBlob -> Int32 -> Int32 -> CString -> VoidPtr -> IO ()
+type WatcherImpl = ZHPtr -> Int32 -> Int32 -> CString -> VoidPtr -> IO ()
 type WatcherFunc = ZHandle -> EventType -> State -> String -> IO ()
 
 -- Exported interface:
@@ -138,11 +151,9 @@ setAcl      :: ZHandle -> String -> Int32 -> Acls -> IO ()
 
 -- C functions:
 
-data VoidBlob = VoidBlob -- C pointer placeholder
-type VoidPtr  = Ptr VoidBlob
-
-data AclsBlob = AclsBlob
-data StatBlob = StatBlob
+type VoidPtr = Ptr CBlob
+type AclsPtr = Ptr CBlob
+type StatPtr = Ptr CBlob
 
 #include <zookeeper.h>
 
@@ -152,66 +163,66 @@ foreign import ccall "wrapper"
 foreign import ccall safe
   "zookeeper.h zookeeper_init" zookeeper_init ::
   CString -> FunPtr WatcherImpl -> Int32 ->
-  VoidPtr -> VoidPtr -> Int32 -> IO (Ptr ZHBlob)
+  VoidPtr -> VoidPtr -> Int32 -> IO ZHPtr
 
 foreign import ccall safe
   "zookeeper_init.h &zookeeper_close" zookeeper_close_ptr ::
-  FunPtr (Ptr ZHBlob -> IO ()) -- actually, -> IO Int32
+  FunPtr (ZHPtr -> IO ()) -- actually, -> IO Int32
 
 foreign import ccall unsafe
   "zookeeper.h zoo_recv_timeout" zoo_recv_timeout ::
-  Ptr ZHBlob -> IO Int32
+  ZHPtr -> IO Int32
 
 foreign import ccall unsafe
   "zookeeper.h zoo_state" zoo_state ::
-  Ptr ZHBlob -> IO Int32
+  ZHPtr -> IO Int32
 
 foreign import ccall safe
   "zookeeper.h zoo_create" zoo_create ::
-  Ptr ZHBlob -> CString -> CString -> Int32 -> Ptr AclsBlob ->
+  ZHPtr -> CString -> CString -> Int32 -> AclsPtr ->
   Int32 -> CString -> Int32 -> IO Int32
 
 foreign import ccall safe "zookeeper.h &ZOO_OPEN_ACL_UNSAFE"
-   zoo_open_acl_unsafe_ptr :: Ptr AclsBlob
+   zoo_open_acl_unsafe_ptr :: AclsPtr
 
 foreign import ccall safe "zookeeper.h &ZOO_READ_ACL_UNSAFE"
-   zoo_read_acl_unsafe_ptr :: Ptr AclsBlob
+   zoo_read_acl_unsafe_ptr :: AclsPtr
 
 foreign import ccall safe "zookeeper.h &ZOO_CREATOR_ALL_ACL"
-   zoo_creator_all_ptr :: Ptr AclsBlob
+   zoo_creator_all_ptr :: AclsPtr
 
 foreign import ccall safe
   "zookeeper.h zoo_delete" zoo_delete ::
-  Ptr ZHBlob -> CString -> Int32 -> IO Int32
+  ZHPtr -> CString -> Int32 -> IO Int32
 
 foreign import ccall safe
   "zookeeper.h zoo_exists" zoo_exists ::
-  Ptr ZHBlob -> CString -> Int32 -> Ptr StatBlob -> IO Int32
+  ZHPtr -> CString -> Int32 -> StatPtr -> IO Int32
 
 foreign import ccall safe
   "zookeeper.h zoo_get" zoo_get ::
-  Ptr ZHBlob -> CString -> Int32 -> CString ->
-  Ptr Int32 -> Ptr StatBlob -> IO Int32
+  ZHPtr -> CString -> Int32 -> CString ->
+  Ptr Int32 -> StatPtr -> IO Int32
 
 foreign import ccall safe
   "zookeeper.h zoo_set" zoo_set ::
-  Ptr ZHBlob -> CString -> CString -> Int32 -> Int32 -> IO Int32
+  ZHPtr -> CString -> CString -> Int32 -> Int32 -> IO Int32
 
 foreign import ccall safe
   "zookeeper.h zoo_get_children" zoo_get_children ::
-  Ptr ZHBlob -> CString -> Int32 -> VoidPtr -> IO Int32
+  ZHPtr -> CString -> Int32 -> VoidPtr -> IO Int32
 
 foreign import ccall safe
   "zookeeper.h zoo_get_acl" zoo_get_acl ::
-  Ptr ZHBlob -> CString -> Ptr AclsBlob -> Ptr StatBlob -> IO Int32
+  ZHPtr -> CString -> AclsPtr -> StatPtr -> IO Int32
 
 foreign import ccall safe
   "zookeeper.h zoo_set_acl" zoo_set_acl ::
-  Ptr ZHBlob -> CString -> Int32 -> Ptr AclsBlob -> IO Int32
+  ZHPtr -> CString -> Int32 -> AclsPtr -> IO Int32
 
 foreign import ccall unsafe
   "zookeeper.h is_unrecoverable" is_unrecoverable ::
-  Ptr ZHBlob -> IO Int32
+  ZHPtr -> IO Int32
 
 foreign import ccall unsafe
   "zookeeper.h zoo_set_debug_level" zoo_set_debug_level ::
@@ -219,8 +230,10 @@ foreign import ccall unsafe
 
 -- Internal functions:
 
-wrapWatcher :: (ForeignPtr ZHBlob -> EventType -> State -> String -> IO ()) ->
-               IO (FunPtr WatcherImpl)
+wrapWatcher ::
+  (ZHandle -> EventType -> State -> String -> IO ()) ->
+  IO (FunPtr WatcherImpl)
+
 wrapWatcher func =
   wrapWatcherImpl (\zhBlob zEventType zState csPath _ -> do
     path <- peekCString csPath
@@ -233,6 +246,7 @@ zooState (#const ZOO_AUTH_FAILED_STATE    ) = AuthFailed
 zooState (#const ZOO_CONNECTING_STATE     ) = Connecting
 zooState (#const ZOO_ASSOCIATING_STATE    ) = Associating
 zooState (#const ZOO_CONNECTED_STATE      ) = Connected
+zooState code                               = State code
 
 zooEvent :: Int32 -> EventType
 zooEvent (#const ZOO_CREATED_EVENT    ) = Created
@@ -241,7 +255,7 @@ zooEvent (#const ZOO_CHANGED_EVENT    ) = Changed
 zooEvent (#const ZOO_CHILD_EVENT      ) = Child
 zooEvent (#const ZOO_SESSION_EVENT    ) = Session
 zooEvent (#const ZOO_NOTWATCHING_EVENT) = NotWatching
-zooEvent code                           = Unknown code
+zooEvent code                           = Event code
 
 zooError :: String -> Int32 -> IO ()
 zooError _ (#const ZOK                     ) = return ()
@@ -304,7 +318,7 @@ aclPermsInt Acl{..} =
   bitOr acl_admin (#const ZOO_PERM_ADMIN ) $
   bitOr acl_all   (#const ZOO_PERM_ALL   ) 0
 
-withAclVector :: Acls -> (Ptr AclsBlob -> IO b) -> IO b
+withAclVector :: Acls -> (AclsPtr -> IO b) -> IO b
 withAclVector OpenAclUnsafe func = func zoo_open_acl_unsafe_ptr
 withAclVector ReadAclUnsafe func = func zoo_read_acl_unsafe_ptr
 withAclVector CreatorAllAcl func = func zoo_creator_all_ptr
