@@ -367,16 +367,16 @@ watchFlag Watch   = 1
 watchFlag NoWatch = 0
 
 pathBufferSize :: Int32
-pathBufferSize = 1024
+pathBufferSize = 65536
 
 valueBufferSize :: Int32
-valueBufferSize = 20480
+valueBufferSize = 1048576 -- 1M
 
 stringVectorSize :: Int
-stringVectorSize =  1024
+stringVectorSize = 1024
 
 aclsVectorSize :: Int
-aclsVectorSize = 64
+aclsVectorSize = 256
 
 -- Implementation of exported functions:
 
