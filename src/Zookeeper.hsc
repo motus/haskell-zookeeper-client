@@ -1,4 +1,4 @@
-
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -349,9 +349,9 @@ copyStat stat = do
 
 copyStringVec :: Ptr b -> IO [String]
 copyStringVec bufPtr = do
-  len <- (#peek struct String_vector, count) bufPtr
+  len::Int32 <- (#peek struct String_vector, count) bufPtr
   vec <- (#peek struct String_vector, data ) bufPtr
-  mapM (peekCString <=< peek . plusPtr vec . (* #size char*)) [0..len-1]
+  mapM (peekCString <=< peek . plusPtr vec . (* #size char*) . fromIntegral) [0..len-1]
 
 withMaybeCStringLen :: Maybe ByteString -> (CStringLen -> IO a) -> IO a
 withMaybeCStringLen Nothing    func = func (nullPtr, -1)
