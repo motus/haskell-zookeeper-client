@@ -24,6 +24,7 @@ import Data.Typeable
 import Control.Applicative
 import Control.Monad
 import Control.Exception
+import Control.Concurrent.MVar
 
 import Foreign
 import Foreign.C.Types
@@ -35,7 +36,11 @@ import Foreign.C.String
 data CBlob = CBlob
 
 type ZHPtr   = Ptr CBlob
-type ZHandle = ForeignPtr CBlob
+type ZHandleInternal = ForeignPtr CBlob
+
+data ZHandle = ZHandle { zh_ptr          :: ZHandleInternal
+                       , zh_value_buffer :: MVar CString
+                       }
 
 data State = ExpiredSession
            | AuthFailed
@@ -404,32 +409,39 @@ init host watcher timeout = do
           zhPtr <- throwErrnoIfNull ("init: " ++ host) $
             zookeeper_init csHost nullFunPtr (fromIntegral timeout) nullPtr nullPtr 0
           newForeignPtr zookeeper_close_ptr zhPtr)
-  setWatcher zh watcher
-  return zh
+
+  -- allocate a 1MB buffer
+  buf <- mallocBytes (fromIntegral valueBufferSize)
+
+  zh' <- ZHandle zh <$> newMVar buf
+  setWatcher zh' watcher
+  return zh'
 
 
 setWatcher :: ZHandle -> Maybe WatcherFunc -> IO ()
 setWatcher zh Nothing =
-  withForeignPtr zh (\zhPtr -> zoo_set_watcher zhPtr nullFunPtr)
+  withForeignPtr (zh_ptr zh) (\zhPtr -> zoo_set_watcher zhPtr nullFunPtr)
 setWatcher zh (Just watcher) = do
   watcherPtr <- wrapWatcher zh watcher
-  withForeignPtr zh (\zhPtr -> zoo_set_watcher zhPtr watcherPtr)
+  withForeignPtr (zh_ptr zh) (\zhPtr -> zoo_set_watcher zhPtr watcherPtr)
 
 
 close :: ZHandle -> IO ()
-close = finalizeForeignPtr
+close zh = do
+    finalizeForeignPtr $ zh_ptr zh
+    free =<< readMVar (zh_value_buffer zh)
 
 
 recvTimeout :: ZHandle -> IO Int
-recvTimeout zh = fromIntegral <$> withForeignPtr zh zoo_recv_timeout
+recvTimeout (ZHandle zh _) = fromIntegral <$> withForeignPtr zh zoo_recv_timeout
 
 
 state :: ZHandle -> IO State
-state zh = liftM zooState $ withForeignPtr zh zoo_state
+state (ZHandle zh _) = liftM zooState $ withForeignPtr zh zoo_state
 
 
 isUnrecoverable :: ZHandle -> IO Bool
-isUnrecoverable zh = checkErrorIs (#const ZINVALIDSTATE)
+isUnrecoverable (ZHandle zh _) = checkErrorIs (#const ZINVALIDSTATE)
   "is_unrecoverable" (withForeignPtr zh is_unrecoverable)
 
 
@@ -439,7 +451,7 @@ setDebugLevel = zoo_set_debug_level . zooLogLevel
 
 create :: ZHandle -> String -> Maybe ByteString ->
           Acls -> CreateMode -> IO String
-create zh path value acl flags =
+create (ZHandle zh _) path value acl flags =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
       withAclVector acl (\aclPtr ->
@@ -452,7 +464,7 @@ create zh path value acl flags =
 
 
 delete :: ZHandle -> String -> Int -> IO ()
-delete zh path version =
+delete (ZHandle zh _) path version =
   checkError ("delete: " ++ path) $
     withForeignPtr zh (\zhPtr ->
       withCString path (\pathPtr ->
@@ -460,7 +472,7 @@ delete zh path version =
 
 
 exists :: ZHandle -> String -> Watch -> IO (Maybe Stat)
-exists zh path watch =
+exists (ZHandle zh _) path watch =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
       allocaBytes (#size struct Stat) (\statPtr -> do
@@ -473,10 +485,10 @@ exists zh path watch =
 
 get :: ZHandle -> String -> Watch -> IO (Maybe ByteString, Stat)
 get zh path watch =
-  withForeignPtr zh (\zhPtr ->
+  withForeignPtr (zh_ptr zh) (\zhPtr ->
     withCString path (\pathPtr ->
       alloca (\bufLen ->
-        allocaBytes valueBufferSize (\buf ->
+        withMVar (zh_value_buffer zh) (\buf ->
           allocaBytes (#size struct Stat) (\statPtr -> do
             poke bufLen (fromIntegral valueBufferSize)
             checkError ("get: " ++ path) $
@@ -487,7 +499,7 @@ get zh path watch =
 
 
 getChildren :: ZHandle -> String -> Watch -> IO [String]
-getChildren zh path watch =
+getChildren (ZHandle zh _) path watch =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
       allocaBytes (#size struct String_vector) (\vecPtr ->
@@ -500,7 +512,7 @@ getChildren zh path watch =
 
 
 set :: ZHandle -> String -> Maybe ByteString -> Int -> IO ()
-set zh path value version =
+set (ZHandle zh _) path value version =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
       withMaybeCStringLen value (\(valuePtr, valueLen) ->
@@ -509,7 +521,7 @@ set zh path value version =
 
 
 getAcl :: ZHandle -> String -> IO (Acls, Stat)
-getAcl zh path =
+getAcl (ZHandle zh _) path =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
       allocaBytes (#size struct ACL_vector) (\aclsPtr ->
@@ -525,7 +537,7 @@ getAcl zh path =
 
 
 setAcl :: ZHandle -> String -> Int -> Acls -> IO ()
-setAcl zh path version acls =
+setAcl (ZHandle zh _) path version acls =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
       withAclVector acls (\aclsPtr ->
