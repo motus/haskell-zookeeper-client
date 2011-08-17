@@ -122,35 +122,6 @@ data Stat = Stat {
 type WatcherImpl = ZHPtr -> Int32 -> Int32 -> CString -> VoidPtr -> IO ()
 type WatcherFunc = ZHandle -> EventType -> State -> String -> IO ()
 
--- Exported interface:
-
-defaultCreateMode :: CreateMode
-
-isUnrecoverable   :: ZHandle -> IO Bool
-setDebugLevel     :: LogLevel -> IO ()
-
-createAcl   :: String -> String -> Word32 -> Acl
-
-init        :: String -> Maybe WatcherFunc -> Int32 -> IO ZHandle
-close       :: ZHandle -> IO ()
-
-setWatcher  :: ZHandle -> Maybe WatcherFunc -> IO ()
-
-recvTimeout :: ZHandle -> IO Int32
-state       :: ZHandle -> IO State
-
-create      :: ZHandle -> String -> Maybe ByteString ->
-               Acls -> CreateMode -> IO String
-
-delete      :: ZHandle -> String -> Int32 -> IO ()
-exists      :: ZHandle -> String -> Watch -> IO (Maybe Stat)
-get         :: ZHandle -> String -> Watch -> IO (Maybe ByteString, Stat)
-getChildren :: ZHandle -> String -> Watch -> IO [String]
-set         :: ZHandle -> String -> Maybe ByteString -> Int32 -> IO ()
-
-getAcl      :: ZHandle -> String -> IO (Acls, Stat)
-setAcl      :: ZHandle -> String -> Int32 -> Acls -> IO ()
-
 -- C functions:
 
 type VoidPtr = Ptr CBlob
@@ -409,10 +380,13 @@ aclsVectorSize = 64
 
 -- Implementation of exported functions:
 
+defaultCreateMode :: CreateMode
 defaultCreateMode = CreateMode { create_ephemeral = True
                                , create_sequence  = False
                                }
 
+
+createAcl :: String -> String -> Word32 -> Acl
 createAcl aclScheme aclId flags = Acl {
   acl_scheme = aclScheme,
   acl_id     = aclId,
@@ -424,6 +398,8 @@ createAcl aclScheme aclId flags = Acl {
   acl_all    = flags .&. (#const ZOO_PERM_ALL   ) /= 0
 }
 
+
+init :: String -> Maybe WatcherFunc -> Int32 -> IO ZHandle
 init host watcher timeout = do
   zh <- withCString host (\csHost -> do
           zhPtr <- throwErrnoIfNull ("init: " ++ host) $
@@ -432,24 +408,38 @@ init host watcher timeout = do
   setWatcher zh watcher
   return zh
 
+
+setWatcher :: ZHandle -> Maybe WatcherFunc -> IO ()
 setWatcher zh Nothing =
   withForeignPtr zh (\zhPtr -> zoo_set_watcher zhPtr nullFunPtr)
-
 setWatcher zh (Just watcher) = do
   watcherPtr <- wrapWatcher zh watcher
   withForeignPtr zh (\zhPtr -> zoo_set_watcher zhPtr watcherPtr)
 
+
+close :: ZHandle -> IO ()
 close = finalizeForeignPtr
 
+
+recvTimeout :: ZHandle -> IO Int32
 recvTimeout zh = withForeignPtr zh zoo_recv_timeout
 
+
+state :: ZHandle -> IO State
 state zh = liftM zooState $ withForeignPtr zh zoo_state
 
+
+isUnrecoverable :: ZHandle -> IO Bool
 isUnrecoverable zh = checkErrorIs (#const ZINVALIDSTATE)
   "is_unrecoverable" (withForeignPtr zh is_unrecoverable)
 
+
+setDebugLevel :: LogLevel -> IO ()
 setDebugLevel = zoo_set_debug_level . zooLogLevel
 
+
+create :: ZHandle -> String -> Maybe ByteString ->
+          Acls -> CreateMode -> IO String
 create zh path value acl flags =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
@@ -461,12 +451,16 @@ create zh path value acl flags =
                 aclPtr (createModeInt flags) buf pathBufferSize
             peekCString buf)))))
 
+
+delete :: ZHandle -> String -> Int32 -> IO ()
 delete zh path version =
   checkError ("delete: " ++ path) $
     withForeignPtr zh (\zhPtr ->
       withCString path (\pathPtr ->
         zoo_delete zhPtr pathPtr version))
 
+
+exists :: ZHandle -> String -> Watch -> IO (Maybe Stat)
 exists zh path watch =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
@@ -477,6 +471,8 @@ exists zh path watch =
   where getStat False ptr = liftM Just $ copyStat ptr
         getStat _ _       = return Nothing
 
+
+get :: ZHandle -> String -> Watch -> IO (Maybe ByteString, Stat)
 get zh path watch =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
@@ -490,6 +486,8 @@ get zh path watch =
             maybeBuf <- peek bufLen >>= packMaybeCStringLen buf
             return (maybeBuf, stat))))))
 
+
+getChildren :: ZHandle -> String -> Watch -> IO [String]
 getChildren zh path watch =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
@@ -501,6 +499,8 @@ getChildren zh path watch =
             zoo_get_children zhPtr pathPtr (watchFlag watch) vecPtr
           copyStringVec vecPtr))))
 
+
+set :: ZHandle -> String -> Maybe ByteString -> Int32 -> IO ()
 set zh path value version =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
@@ -508,6 +508,8 @@ set zh path value version =
         checkError ("set: " ++ path) $
           zoo_set zhPtr pathPtr valuePtr (fromIntegral valueLen) version)))
 
+
+getAcl :: ZHandle -> String -> IO (Acls, Stat)
 getAcl zh path =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
@@ -522,6 +524,8 @@ getAcl zh path =
             stat <- copyStat statPtr
             return (acls, stat))))))
 
+
+setAcl :: ZHandle -> String -> Int32 -> Acls -> IO ()
 setAcl zh path version acls =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
