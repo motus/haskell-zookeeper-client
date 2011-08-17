@@ -2,7 +2,6 @@
 module Main where
 
 import qualified Data.ByteString.Char8 as B
-import Data.Int (Int32)
 import System.Environment (getArgs)
 import qualified Zookeeper as Zoo
 
@@ -40,7 +39,7 @@ run zh "delete" (path:version) =
 
 run _zh cmd _args = error ("Unknown command: " ++ cmd)
 
-intVersion :: [String] -> Int32
+intVersion :: [String] -> Int
 
 intVersion [] = 0
 intVersion (v:_) = read v
