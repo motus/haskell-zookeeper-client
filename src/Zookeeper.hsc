@@ -285,7 +285,7 @@ bitOr :: Bits a => Bool -> a -> a -> a
 bitOr True val res = val .|. res
 bitOr False _  res = res
 
-createModeInt :: Bits a => CreateMode -> a
+createModeInt :: CreateMode -> CInt
 createModeInt mode =
   bitOr (create_ephemeral mode) (#const ZOO_EPHEMERAL) $
   bitOr (create_sequence mode) (#const ZOO_SEQUENCE ) 0

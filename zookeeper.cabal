@@ -11,7 +11,7 @@ Cabal-Version:  >=1.8
 Library
   Ghc-Options:     -threaded -O2 -Wall
   Extra-Libraries: zookeeper_mt
-  Build-Depends:   base >= 4 && < 5, bytestring == 0.9.*
+  Build-Depends:   base >= 4 && < 5, bytestring >= 0.9
   Hs-source-dirs:  src
   Exposed-modules: Zookeeper
   Extensions:      DeriveDataTypeable
@@ -19,7 +19,7 @@ Library
 Executable ZooClient
   Ghc-Options:     -threaded -O2 -Wall
   Extra-Libraries: zookeeper_mt
-  Build-Depends:   base >= 4 && < 5, bytestring == 0.9.*
+  Build-Depends:   base >= 4 && < 5, bytestring >= 0.9
   Hs-source-dirs:  src
   Main-is:         ZooClient.hs
   Other-modules:   Zookeeper
