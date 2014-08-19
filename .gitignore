@@ -7,3 +7,5 @@ Zookeeper_stub.*
 #*
 .#*
 /dist/
+.cabal-sandbox
+cabal.sandbox.config
