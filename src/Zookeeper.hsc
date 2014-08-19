@@ -514,6 +514,7 @@ getChildren (ZHandle zh _) path watch =
             zoo_get_children zhPtr pathPtr (watchFlag watch) vecPtr
           copyStringVec vecPtr))))
 
+
 set :: ZHandle -> String -> Maybe ByteString -> Int -> IO ()
 set (ZHandle zh _) path value version =
   withForeignPtr zh (\zhPtr ->
@@ -523,7 +524,7 @@ set (ZHandle zh _) path value version =
           zoo_set zhPtr pathPtr valuePtr (fromIntegral valueLen) (fromIntegral version))))
 
 
-set2 :: ZHandle -> String -> Maybe ByteString -> Int -> IO (Maybe Stat)
+set2 :: ZHandle -> String -> Maybe ByteString -> Int -> IO Stat
 set2 (ZHandle zh _) path value version =
   withForeignPtr zh (\zhPtr ->
     withCString path (\pathPtr ->
@@ -531,11 +532,7 @@ set2 (ZHandle zh _) path value version =
         allocaBytes (#size struct Stat) (\statPtr -> do
           checkError ("set2: " ++ path) $
             zoo_set2 zhPtr pathPtr valuePtr (fromIntegral valueLen) (fromIntegral version) statPtr
-          stat <- if (statPtr == nullPtr) then
-            return Nothing
-            else
-              fmap Just $ copyStat statPtr
-          return stat))))
+          copyStat statPtr))))
 
 
 getAcl :: ZHandle -> String -> IO (Acls, Stat)
