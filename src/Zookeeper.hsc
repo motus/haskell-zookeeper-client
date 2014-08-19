@@ -6,7 +6,7 @@
 module Zookeeper (
   init, close, setWatcher,
   recvTimeout, state, isUnrecoverable, setDebugLevel,
-  create, delete, exists, get, getChildren, set,
+  create, delete, exists, get, getChildren, set, set2,
   getAcl, setAcl,
   defaultCreateMode, createAcl,
   WatcherFunc, State(..), Watch(..), LogLevel(..), ZooError(..),
@@ -510,7 +510,6 @@ getChildren (ZHandle zh _) path watch =
             zoo_get_children zhPtr pathPtr (watchFlag watch) vecPtr
           copyStringVec vecPtr))))
 
-
 set :: ZHandle -> String -> Maybe ByteString -> Int -> IO ()
 set (ZHandle zh _) path value version =
   withForeignPtr zh (\zhPtr ->
@@ -518,6 +517,18 @@ set (ZHandle zh _) path value version =
       withMaybeCStringLen value (\(valuePtr, valueLen) ->
         checkError ("set: " ++ path) $
           zoo_set zhPtr pathPtr valuePtr (fromIntegral valueLen) (fromIntegral version))))
+
+
+set2 :: ZHandle -> String -> Maybe ByteString -> Int -> IO (Stat)
+set2 (ZHandle zh _) path value version =
+  withForeignPtr zh (\zhPtr ->
+    withCString path (\pathPtr ->
+      withMaybeCStringLen value (\(valuePtr, valueLen) ->
+        allocaBytes (#size struct Stat) (\statPtr -> do
+          checkError ("set2: " ++ path) $
+            zoo_set zhPtr pathPtr valuePtr (fromIntegral valueLen) (fromIntegral version)
+          stat <- copyStat statPtr
+          return stat))))
 
 
 getAcl :: ZHandle -> String -> IO (Acls, Stat)

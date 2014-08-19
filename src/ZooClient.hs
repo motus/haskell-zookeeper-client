@@ -34,6 +34,10 @@ run zh "getChildren" (path:_) = do
 run zh "set" (path:value:version) =
   Zoo.set zh path (Just $ B.pack value) (intVersion version)
 
+run zh "set2" (path:value:version) = do
+  stat <- Zoo.set2 zh path (Just $ B.pack value) (intVersion version)
+  print stat
+
 run zh "delete" (path:version) =
   Zoo.delete zh path (intVersion version)
 
