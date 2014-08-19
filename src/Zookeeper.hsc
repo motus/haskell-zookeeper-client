@@ -192,6 +192,10 @@ foreign import ccall safe
   ZHPtr -> CString -> CString -> CInt -> CInt -> IO CInt
 
 foreign import ccall safe
+  "zookeeper.h zoo_set2" zoo_set2 ::
+  ZHPtr -> CString -> CString -> CInt -> CInt -> StatPtr -> IO CInt
+
+foreign import ccall safe
   "zookeeper.h zoo_get_children" zoo_get_children ::
   ZHPtr -> CString -> CInt -> VoidPtr -> IO CInt
 
@@ -526,7 +530,7 @@ set2 (ZHandle zh _) path value version =
       withMaybeCStringLen value (\(valuePtr, valueLen) ->
         allocaBytes (#size struct Stat) (\statPtr -> do
           checkError ("set2: " ++ path) $
-            zoo_set zhPtr pathPtr valuePtr (fromIntegral valueLen) (fromIntegral version)
+            zoo_set2 zhPtr pathPtr valuePtr (fromIntegral valueLen) (fromIntegral version) statPtr
           stat <- if (statPtr == nullPtr) then
             return Nothing
             else
