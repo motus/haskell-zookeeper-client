@@ -134,7 +134,7 @@ type VoidPtr = Ptr CBlob
 type AclsPtr = Ptr CBlob
 type StatPtr = Ptr CBlob
 
-#include <zookeeper.h>
+#include <zookeeper/zookeeper.h>
 
 foreign import ccall "wrapper"
   wrapWatcherImpl :: WatcherImpl -> IO (FunPtr WatcherImpl)
